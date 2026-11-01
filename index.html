@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Oveja Saltarina</title>
+  <meta name="description" content="Ayuda a la oveja a saltar de tablón en tablón y subir lo más alto posible.">
+  <meta name="theme-color" content="#6cc6ff">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!--GAME-START-->
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div class="pill">
+      <div id="meters">0 m</div>
+      <div id="bestHud"></div>
+    </div>
+    <div class="right">
+      <div id="hearts" class="pill" aria-label="Vidas"></div>
+      <button id="sound" type="button" aria-label="Silenciar sonido">🔊</button>
+    </div>
+  </div>
+
+  <div id="overlay">
+    <div class="card">
+      <h1 id="title">Oveja Saltarina</h1>
+      <p id="message">¡Salta de tablón en tablón y sube lo más alto que puedas!</p>
+      <p class="how">La oveja salta sola. Toca el lado izquierdo o derecho de la pantalla, o usa las flechas ← →, para moverla.</p>
+      <div class="legend">
+        <span><i style="background:#c98a4b"></i>Tablón</span>
+        <span><i style="background:#5fb7e8"></i>Se mueve</span>
+        <span><i style="background:#e6c49a"></i>Se rompe</span>
+      </div>
+      <p class="how">Cuidado con las abejas y los cardos: cada choque quita un corazón.</p>
+      <p id="best"></p>
+      <button id="play" type="button">Jugar</button>
+<!--GAME-END-->
+      <button id="install" type="button" hidden>Instalar aplicación</button>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+    }
+    let deferredPrompt;
+    const installBtn = document.getElementById('install');
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      installBtn.hidden = false;
+    });
+    installBtn.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      installBtn.hidden = true;
+    });
+    window.addEventListener('appinstalled', () => { installBtn.hidden = true; });
+  </script>
+</body>
+</html>

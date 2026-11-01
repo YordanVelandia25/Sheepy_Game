@@ -4,5 +4,5 @@
 // Si supabaseKey está vacía, el juego usa solo el ranking de este dispositivo.
 window.OVEJA_CONFIG = {
   supabaseUrl: 'https://lwqowufumncicnshmfbc.supabase.co',
-  supabaseKey: '',
+  supabaseKey: 'sb_publishable_JUx9eTUe4bO6yIEsmU0TvQ_x1K8HsXP',
 };

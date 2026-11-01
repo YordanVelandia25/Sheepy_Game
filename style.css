@@ -1,12 +1,3 @@
-/* Tipografía principal (licencia de uso propia: el archivo no se incluye hasta que se añada a fonts/) */
-@font-face {
-  font-family: "Hey Comic";
-  src: local("Hey Comic"), local("HeyComic"), local("HeyComic-Regular"),
-       url("fonts/HeyComic.woff2") format("woff2"),
-       url("fonts/HeyComic.otf") format("opentype"),
-       url("fonts/HeyComic.ttf") format("truetype");
-  font-display: swap;
-}
 /* Estilo caricatura: contorno negro grueso, sombra sólida, rojo de la gorra como acento */
 :root {
   --ink: #1d1a1a;
@@ -17,9 +8,9 @@
   --accent-soft: #ffe1dc;
   --sun: #ffd23f;
   --heart: #e3262b;
-  /* Principal: Hey Comic (archivo en fonts/, o instalada en el equipo); mientras falte, Lilita One.
+  /* Principal: Lilita One.
      Secundaria: Century Gothic (instalada en Windows/macOS con Office); si no está, Didact Gothic, muy parecida. */
-  --display: "Hey Comic", "Lilita One", "Arial Rounded MT Bold", sans-serif;
+  --display: "Lilita One", "Arial Rounded MT Bold", sans-serif;
   --font: "Century Gothic", "CenturyGothic", "Didact Gothic", "Avenir Next", "Futura", system-ui, sans-serif;
   color-scheme: light;
 }

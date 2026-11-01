@@ -82,6 +82,7 @@ renderSoundBtn();
 // ---------- Controles ----------
 const keys = { left: false, right: false };
 window.addEventListener('keydown', (e) => {
+  if (e.target instanceof HTMLInputElement) return; // escribiendo el nombre
   if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = true;
   if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = true;
   if ((e.key === 'Enter' || e.key === ' ') && mode !== 'play') { e.preventDefault(); start(); }
@@ -176,7 +177,94 @@ function puff(x, y, color, n = 6, spd = 120) {
   }
 }
 
+// ---------- Ranking (se guarda en este dispositivo) ----------
+const RANK_KEY = 'ranking-v1';
+const RANK_MAX = 50;   // puntuaciones guardadas
+const RANK_SHOW = 10;  // puntuaciones visibles
+const playerInput = $('player');
+const rankingEl = $('ranking');
+const savedEl = $('saved');
+const introEl = $('intro');
+const playerLabel = document.querySelector('label[for="player"]');
+let ranking = loadRanking();
+let lastEntry = null; // puntuación de la última partida (para poder renombrarla)
+best = Math.max(best, ranking[0]?.m || 0);
+playerInput.value = safeGet('player-name') || '';
+
+function loadRanking() {
+  try {
+    const r = JSON.parse(safeGet(RANK_KEY) || '[]');
+    if (!Array.isArray(r)) return [];
+    return r.filter((e) => e && typeof e.name === 'string' && Number.isFinite(e.m)).sort(byScore);
+  } catch { return []; }
+}
+function byScore(a, b) { return b.m - a.m || a.t - b.t; }
+function saveRanking() { safeSet(RANK_KEY, JSON.stringify(ranking)); }
+function cleanName(s) { return (s || '').replace(/\s+/g, ' ').trim().slice(0, 16); }
+function playerName() { return cleanName(playerInput.value) || 'Jugador'; }
+
+function addScore(m) {
+  const entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: playerName(), m, t: Date.now() };
+  ranking.push(entry);
+  ranking.sort(byScore);
+  ranking = ranking.slice(0, RANK_MAX);
+  saveRanking();
+  return ranking.includes(entry) ? entry : null;
+}
+
+function rankRow(e, pos) {
+  const li = document.createElement('li');
+  if (lastEntry && e.id === lastEntry.id) li.className = 'me';
+  const p = document.createElement('span'); p.className = 'pos'; p.textContent = pos;
+  const n = document.createElement('span'); n.className = 'name'; n.textContent = e.name;
+  const v = document.createElement('span'); v.className = 'score'; v.textContent = `${e.m} m`;
+  li.append(p, n, v);
+  return li;
+}
+
+function renderRanking() {
+  rankingEl.replaceChildren();
+  if (!ranking.length) {
+    const li = document.createElement('li');
+    li.className = 'empty';
+    li.textContent = 'Todavía no hay puntuaciones. ¡Juega una partida para estrenar el ranking!';
+    rankingEl.appendChild(li);
+    return;
+  }
+  ranking.slice(0, RANK_SHOW).forEach((e, i) => rankingEl.appendChild(rankRow(e, i + 1)));
+  const idx = lastEntry ? ranking.indexOf(lastEntry) : -1;
+  if (idx >= RANK_SHOW) {
+    const gap = document.createElement('li');
+    gap.className = 'gap'; gap.textContent = '···';
+    rankingEl.append(gap, rankRow(lastEntry, idx + 1));
+  }
+}
+
+function showSaved() {
+  if (!lastEntry) return;
+  savedEl.textContent = `Guardado en el puesto ${ranking.indexOf(lastEntry) + 1} como «${lastEntry.name}». Puedes cambiar el nombre aquí.`;
+}
+
+playerInput.addEventListener('input', () => {
+  const name = cleanName(playerInput.value);
+  safeSet('player-name', name);
+  if (mode === 'over' && lastEntry) {
+    lastEntry.name = name || 'Jugador';
+    saveRanking();
+    renderRanking();
+    showSaved();
+  }
+});
+playerInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); playerInput.blur(); start(); }
+});
+
 function start() {
+  playerInput.value = cleanName(playerInput.value);
+  safeSet('player-name', playerInput.value);
+  lastEntry = null;
+  savedEl.textContent = '';
+  playerLabel.textContent = 'Nombre del jugador';
   initAudio();
   if (audio && audio.state === 'suspended') audio.resume();
   reset();
@@ -191,6 +279,15 @@ function gameOver(reason) {
   const m = meters();
   const isRecord = m > best;
   if (isRecord) { best = m; safeSet('best-m', best); }
+  if (m > 0) {
+    lastEntry = addScore(m);
+    if (lastEntry) { showSaved(); playerLabel.textContent = 'Nombre para esta puntuación'; }
+    else savedEl.textContent = 'Esta vez no entraste en el ranking.';
+  } else {
+    savedEl.textContent = 'Con 0 m la partida no se guarda en el ranking.';
+  }
+  introEl.hidden = true;
+  renderRanking();
   titleEl.textContent = reason === 'fall' ? '¡Uy, se cayó!' : '¡Ay, ay, ay!';
   messageEl.innerHTML = `Subiste <strong>${m} metros</strong>`;
   bestEl.textContent = isRecord && m > 0 ? '¡Nuevo récord!' : best ? `Récord: ${best} m` : '';
@@ -708,6 +805,7 @@ function loop(now) {
 }
 
 playBtn.addEventListener('click', start);
+renderRanking();
 reset();
 bestEl.textContent = best ? `Récord: ${best} m` : '';
 requestAnimationFrame(loop);

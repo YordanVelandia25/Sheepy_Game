@@ -1,6 +1,6 @@
 // Service worker: guarda los archivos en caché para que el juego funcione sin conexión.
 // Cambia la versión cada vez que publiques cambios para que los usuarios reciban la actualización.
-const CACHE = 'oveja-v2';
+const CACHE = 'oveja-v3';
 const ASSETS = [
   './',
   'index.html',

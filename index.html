@@ -33,15 +33,26 @@
     <div class="card">
       <h1 id="title">Oveja Saltarina</h1>
       <p id="message">¡Salta de tablón en tablón y sube lo más alto que puedas!</p>
-      <p class="how">La oveja salta sola. Toca el lado izquierdo o derecho de la pantalla, o usa las flechas ← →, para moverla.</p>
-      <div class="legend">
-        <span><i style="background:#8a5f3c"></i>Tablón</span>
-        <span><i style="background:#56666d"></i>Se mueve</span>
-        <span><i style="background:#b7a184"></i>Se rompe</span>
+      <div id="intro">
+        <p class="how">La oveja salta sola. Toca el lado izquierdo o derecho de la pantalla, o usa las flechas ← →, para moverla.</p>
+        <div class="legend">
+          <span><i style="background:#8a5f3c"></i>Tablón</span>
+          <span><i style="background:#56666d"></i>Se mueve</span>
+          <span><i style="background:#b7a184"></i>Se rompe</span>
+        </div>
+        <p class="how">Cuidado con las abejas y los cardos: cada choque quita un corazón.</p>
       </div>
-      <p class="how">Cuidado con las abejas y los cardos: cada choque quita un corazón.</p>
       <p id="best"></p>
+      <div class="field">
+        <label for="player">Nombre del jugador</label>
+        <input id="player" type="text" maxlength="16" autocomplete="nickname" enterkeyhint="go" placeholder="Escribe tu nombre" spellcheck="false">
+        <p id="saved" class="hint"></p>
+      </div>
       <button id="play" type="button">Jugar</button>
+      <section class="ranking" aria-labelledby="rankingTitle">
+        <h2 id="rankingTitle">Ranking</h2>
+        <ol id="ranking"></ol>
+      </section>
 <!--GAME-END-->
       <button id="install" type="button" hidden>Instalar aplicación</button>
     </div>

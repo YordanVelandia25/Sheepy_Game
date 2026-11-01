@@ -200,6 +200,7 @@ const GLOBAL_ON = !!(CFG.supabaseUrl && CFG.supabaseKey);
 let ranking = loadRanking();        // ranking del dispositivo
 let worldTop = [];                  // top 10 mundial
 let worldState = 'idle';            // idle | loading | ok | error
+let worldError = '';                // mensaje de Supabase si falló la carga
 let rankTab = GLOBAL_ON ? (safeGet('rank-tab') || 'world') : 'local';
 let current = null;                 // última partida: { m, saved, name, local, world }
 best = Math.max(best, ranking[0]?.m || 0);
@@ -259,7 +260,14 @@ async function api(path, body) {
     body: body ? JSON.stringify(body) : undefined,
     keepalive: !!body,
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    // Error devuelto por Supabase (no de conexión): se muestra su mensaje
+    let detail = '';
+    try { const j = await res.json(); detail = j.message || j.hint || j.error || ''; } catch {}
+    const err = new Error(`${res.status}${detail ? ': ' + detail : ''}`);
+    err.server = true;
+    throw err;
+  }
   return res.status === 204 ? null : res.json();
 }
 
@@ -270,8 +278,10 @@ async function loadWorld() {
   try {
     worldTop = await api(`/rest/v1/scores?select=name,meters&order=meters.desc,created_at.asc&limit=${RANK_SHOW}`);
     worldState = 'ok';
-  } catch {
+  } catch (err) {
     worldState = 'error';
+    worldError = err.server ? err.message : '';
+    console.warn('Ranking mundial:', err);
   }
   renderRanking();
 }
@@ -293,9 +303,11 @@ async function flushPending() {
       try {
         const [row] = await api('/rest/v1/rpc/submit_score', { p_name: item.name, p_meters: item.m });
         pending.shift(); savePending();
+        if (!row || row.best_meters == null) throw Object.assign(new Error('respuesta inesperada; vuelve a ejecutar supabase/ranking.sql'), { server: true });
         if (game) Object.assign(game.world, { status: 'sent', rank: row.score_rank, best: row.best_meters, improved: row.improved });
-      } catch {
-        if (game) game.world.status = 'offline';
+      } catch (err) {
+        if (game) Object.assign(game.world, { status: err.server ? 'error' : 'offline', error: err.message });
+        console.warn('Ranking mundial:', err);
         break;
       }
     }
@@ -379,7 +391,12 @@ function renderRanking() {
 
   if (rankTab === 'world') {
     if (worldState === 'loading' || worldState === 'idle') { rankingEl.appendChild(note('Cargando el ranking mundial…')); return; }
-    if (worldState === 'error') { rankingEl.appendChild(note('No se pudo cargar el ranking mundial. Revisa tu conexión.')); return; }
+    if (worldState === 'error') {
+      rankingEl.appendChild(note(worldError
+        ? `No se pudo cargar el ranking mundial (error ${worldError}).`
+        : 'No se pudo cargar el ranking mundial. Revisa tu conexión.'));
+      return;
+    }
     if (!worldTop.length) { rankingEl.appendChild(note('Todavía no hay puntuaciones en el mundo. ¡Sé la primera persona!')); return; }
     worldTop.forEach((r, i) => rankingEl.appendChild(rankRow(r.name, r.meters, i + 1, nameKey(r.name) === myKey)));
     const w = current?.world;
@@ -423,6 +440,7 @@ function showSaved() {
     ? `Guardado como ${name}.`
     : `${name} ya tenía ${localBest} m en este dispositivo, así que se mantiene esa marca.`;
   if (GLOBAL_ON && w.status === 'offline') savedEl.textContent = `${localText} Sin conexión: se enviará al ranking mundial más tarde.`;
+  else if (GLOBAL_ON && w.status === 'error') savedEl.textContent = `${localText} No se pudo guardar en el ranking mundial (error ${w.error}). Se volverá a intentar.`;
   else if (GLOBAL_ON) savedEl.textContent = `${localText} Enviando al ranking mundial…`;
   else savedEl.textContent = localText;
 }

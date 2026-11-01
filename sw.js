@@ -1,6 +1,6 @@
 // Service worker: guarda los archivos en caché para que el juego funcione sin conexión.
-// Cambia la versión cada vez que publiques cambios para que los usuarios reciban la actualización.
-const CACHE = 'oveja-v6';
+// Usa primero la red, así que los cambios publicados llegan sin esperar. Sube la versión si cambias la lista de archivos.
+const CACHE = 'oveja-v7';
 const ASSETS = [
   './',
   'index.html',
@@ -34,7 +34,16 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   // El ranking mundial (Supabase) y otros dominios siempre van por red
   if (new URL(event.request.url).origin !== self.location.origin) return;
+  // Primero la red (para recibir siempre la última versión); sin conexión, la copia guardada
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    fetch(event.request)
+      .then((res) => {
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(event.request, copy));
+        }
+        return res;
+      })
+      .catch(() => caches.match(event.request, { ignoreSearch: true }))
   );
 });

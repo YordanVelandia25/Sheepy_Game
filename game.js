@@ -1,4 +1,4 @@
-// Oveja Saltarina — la oveja rebota sola sobre los tablones; tú la mueves a izquierda y derecha.
+// Sheepy Jump — la oveja rebota sola sobre los tablones; tú la mueves a izquierda y derecha.
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const $ = (id) => document.getElementById(id);

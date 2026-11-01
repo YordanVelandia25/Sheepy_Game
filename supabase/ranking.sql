@@ -1,4 +1,4 @@
--- Ranking mundial de Oveja Saltarina
+-- Ranking mundial de Sheepy Jump
 -- Un registro por jugador (por nombre, sin distinguir mayúsculas).
 -- Cuando el jugador supera su marca personal se MODIFICA su registro; no se crea otro.
 --

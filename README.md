@@ -1,4 +1,4 @@
-# Oveja Saltarina (Sheepy Game)
+# Sheepy Jump
 
 Juego web para todas las edades: la oveja rebota sola de tablón en tablón y tú la mueves a izquierda y derecha para subir lo más alto posible, esquivando abejas y cardos.
 

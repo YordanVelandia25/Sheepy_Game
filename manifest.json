@@ -1,6 +1,6 @@
 {
-  "name": "Oveja Saltarina",
-  "short_name": "Oveja",
+  "name": "Sheepy Jump",
+  "short_name": "Sheepy Jump",
   "description": "Ayuda a la oveja a saltar de tablón en tablón y subir lo más alto posible.",
   "lang": "es",
   "start_url": "./",

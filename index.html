@@ -50,7 +50,13 @@
       </div>
       <button id="play" type="button">Jugar</button>
       <section class="ranking" aria-labelledby="rankingTitle">
-        <h2 id="rankingTitle">Ranking</h2>
+        <div class="ranking-head">
+          <h2 id="rankingTitle">Ranking</h2>
+          <div class="tabs" role="tablist" aria-label="Tipo de ranking">
+            <button id="tabWorld" type="button" role="tab" aria-selected="true" hidden>Mundial</button>
+            <button id="tabLocal" type="button" role="tab" aria-selected="false" hidden>Este dispositivo</button>
+          </div>
+        </div>
         <ol id="ranking"></ol>
       </section>
 <!--GAME-END-->
@@ -58,6 +64,7 @@
     </div>
   </div>
 
+  <script src="config.js"></script>
   <script src="game.js"></script>
   <script>
     if ('serviceWorker' in navigator) {

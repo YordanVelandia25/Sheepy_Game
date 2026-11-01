@@ -177,34 +177,45 @@ function puff(x, y, color, n = 6, spd = 120) {
   }
 }
 
-// ---------- Ranking (se guarda en este dispositivo) ----------
+// ---------- Ranking: mundial (Supabase) y de este dispositivo ----------
 const RANK_KEY = 'ranking-v1';
-const RANK_MAX = 50;   // puntuaciones guardadas
+const PENDING_KEY = 'ranking-pendiente-v1';
+const RANK_MAX = 50;   // puntuaciones guardadas en el dispositivo
 const RANK_SHOW = 10;  // puntuaciones visibles
 const playerInput = $('player');
 const rankingEl = $('ranking');
 const savedEl = $('saved');
 const introEl = $('intro');
 const playerLabel = document.querySelector('label[for="player"]');
-let ranking = loadRanking();
-let lastEntry = null; // puntuación de la última partida (para poder renombrarla)
+const tabWorld = $('tabWorld');
+const tabLocal = $('tabLocal');
+
+const CFG = window.OVEJA_CONFIG || {};
+const GLOBAL_ON = !!(CFG.supabaseUrl && CFG.supabaseKey);
+
+let ranking = loadRanking();        // ranking del dispositivo
+let worldTop = [];                  // top 10 mundial
+let worldState = 'idle';            // idle | loading | ok | error
+let rankTab = GLOBAL_ON ? (safeGet('rank-tab') || 'world') : 'local';
+let current = null;                 // última partida: { name, m, local, world }
 best = Math.max(best, ranking[0]?.m || 0);
 playerInput.value = safeGet('player-name') || '';
 
+function loadJSON(key, fallback) {
+  try { const v = JSON.parse(safeGet(key) || 'null'); return v ?? fallback; } catch { return fallback; }
+}
 function loadRanking() {
-  try {
-    const r = JSON.parse(safeGet(RANK_KEY) || '[]');
-    if (!Array.isArray(r)) return [];
-    return r.filter((e) => e && typeof e.name === 'string' && Number.isFinite(e.m)).sort(byScore);
-  } catch { return []; }
+  const r = loadJSON(RANK_KEY, []);
+  if (!Array.isArray(r)) return [];
+  return r.filter((e) => e && typeof e.name === 'string' && Number.isFinite(e.m)).sort(byScore);
 }
 function byScore(a, b) { return b.m - a.m || a.t - b.t; }
 function saveRanking() { safeSet(RANK_KEY, JSON.stringify(ranking)); }
 function cleanName(s) { return (s || '').replace(/\s+/g, ' ').trim().slice(0, 16); }
 function playerName() { return cleanName(playerInput.value) || 'Jugador'; }
 
-function addScore(m) {
-  const entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: playerName(), m, t: Date.now() };
+function addLocalScore(name, m) {
+  const entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, m, t: Date.now() };
   ranking.push(entry);
   ranking.sort(byScore);
   ranking = ranking.slice(0, RANK_MAX);
@@ -212,57 +223,189 @@ function addScore(m) {
   return ranking.includes(entry) ? entry : null;
 }
 
-function rankRow(e, pos) {
+// --- API de Supabase (REST, sin librerías) ---
+async function api(path, body) {
+  const res = await fetch(CFG.supabaseUrl.replace(/\/$/, '') + path, {
+    method: body ? 'POST' : 'GET',
+    headers: {
+      apikey: CFG.supabaseKey,
+      // Las claves antiguas (anon, formato JWT "eyJ…") también van como Bearer;
+      // las nuevas (sb_publishable_…) solo en "apikey".
+      ...(CFG.supabaseKey.startsWith('eyJ') ? { Authorization: `Bearer ${CFG.supabaseKey}` } : {}),
+      'Content-Type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    keepalive: !!body,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.status === 204 ? null : res.json();
+}
+
+async function loadWorld() {
+  if (!GLOBAL_ON) return;
+  worldState = worldTop.length ? 'ok' : 'loading';
+  renderRanking();
+  try {
+    worldTop = await api(`/rest/v1/scores?select=id,name,meters&order=meters.desc,created_at.asc&limit=${RANK_SHOW}`);
+    worldState = 'ok';
+  } catch {
+    worldState = 'error';
+  }
+  renderRanking();
+}
+
+// Cola de puntuaciones por enviar (sobrevive a cortes de conexión y recargas)
+let pending = loadJSON(PENDING_KEY, []);
+if (!Array.isArray(pending)) pending = [];
+const savePending = () => safeSet(PENDING_KEY, JSON.stringify(pending));
+let flushing = false;
+
+async function flushPending() {
+  if (!GLOBAL_ON || flushing || !pending.length) return;
+  flushing = true;
+  while (pending.length) {
+    const item = pending[0];
+    if (current && current.world.key === item.key) current.world.status = 'sending';
+    showSaved();
+    try {
+      const [row] = await api('/rest/v1/rpc/submit_score', { p_name: item.name, p_meters: item.m });
+      pending.shift(); savePending();
+      if (current && current.world.key === item.key) {
+        Object.assign(current.world, { status: 'sent', id: row.score_id, token: row.token, rank: row.score_rank, sentName: item.name });
+        if (current.name !== item.name) renameWorld(); // se cambió el nombre mientras se enviaba
+      }
+    } catch {
+      if (current && current.world.key === item.key) current.world.status = 'offline';
+      break;
+    }
+  }
+  flushing = false;
+  showSaved();
+  loadWorld();
+}
+window.addEventListener('online', flushPending);
+
+let renameTimer = 0;
+function renameWorld() {
+  clearTimeout(renameTimer);
+  renameTimer = setTimeout(async () => {
+    const w = current?.world;
+    if (!w || w.status !== 'sent' || w.sentName === current.name) return;
+    const name = current.name;
+    try {
+      await api('/rest/v1/rpc/rename_score', { p_id: w.id, p_token: w.token, p_name: name });
+      w.sentName = name;
+      const row = worldTop.find((r) => r.id === w.id);
+      if (row) row.name = name;
+      renderRanking();
+    } catch { /* si falla, queda el nombre anterior en el ranking mundial */ }
+  }, 600);
+}
+
+// --- Dibujo de la lista ---
+function rankRow(name, m, pos, me) {
   const li = document.createElement('li');
-  if (lastEntry && e.id === lastEntry.id) li.className = 'me';
+  if (me) li.className = 'me';
   const p = document.createElement('span'); p.className = 'pos'; p.textContent = pos;
-  const n = document.createElement('span'); n.className = 'name'; n.textContent = e.name;
-  const v = document.createElement('span'); v.className = 'score'; v.textContent = `${e.m} m`;
+  const n = document.createElement('span'); n.className = 'name'; n.textContent = name;
+  const v = document.createElement('span'); v.className = 'score'; v.textContent = `${m} m`;
   li.append(p, n, v);
+  return li;
+}
+function note(text) {
+  const li = document.createElement('li');
+  li.className = 'empty';
+  li.textContent = text;
+  return li;
+}
+function gapRow() {
+  const li = document.createElement('li');
+  li.className = 'gap'; li.textContent = '···';
   return li;
 }
 
 function renderRanking() {
+  tabWorld.parentElement.hidden = tabWorld.hidden = tabLocal.hidden = !GLOBAL_ON;
+  tabWorld.setAttribute('aria-selected', rankTab === 'world');
+  tabLocal.setAttribute('aria-selected', rankTab === 'local');
   rankingEl.replaceChildren();
-  if (!ranking.length) {
-    const li = document.createElement('li');
-    li.className = 'empty';
-    li.textContent = 'Todavía no hay puntuaciones. ¡Juega una partida para estrenar el ranking!';
-    rankingEl.appendChild(li);
+
+  if (rankTab === 'world') {
+    if (worldState === 'loading' || worldState === 'idle') { rankingEl.appendChild(note('Cargando el ranking mundial…')); return; }
+    if (worldState === 'error') { rankingEl.appendChild(note('No se pudo cargar el ranking mundial. Revisa tu conexión.')); return; }
+    if (!worldTop.length) { rankingEl.appendChild(note('Todavía no hay puntuaciones en el mundo. ¡Sé la primera persona!')); return; }
+    const myId = current?.world.id;
+    worldTop.forEach((r, i) => rankingEl.appendChild(rankRow(r.name, r.meters, i + 1, r.id === myId)));
+    if (myId && !worldTop.some((r) => r.id === myId)) {
+      rankingEl.append(gapRow(), rankRow(current.name, current.m, current.world.rank, true));
+    }
     return;
   }
-  ranking.slice(0, RANK_SHOW).forEach((e, i) => rankingEl.appendChild(rankRow(e, i + 1)));
-  const idx = lastEntry ? ranking.indexOf(lastEntry) : -1;
-  if (idx >= RANK_SHOW) {
-    const gap = document.createElement('li');
-    gap.className = 'gap'; gap.textContent = '···';
-    rankingEl.append(gap, rankRow(lastEntry, idx + 1));
-  }
+
+  if (!ranking.length) { rankingEl.appendChild(note('Todavía no hay puntuaciones. ¡Juega una partida para estrenar el ranking!')); return; }
+  const mine = current?.local;
+  ranking.slice(0, RANK_SHOW).forEach((e, i) => rankingEl.appendChild(rankRow(e.name, e.m, i + 1, e === mine)));
+  const idx = mine ? ranking.indexOf(mine) : -1;
+  if (idx >= RANK_SHOW) rankingEl.append(gapRow(), rankRow(mine.name, mine.m, idx + 1, true));
 }
 
+function setTab(tab) {
+  rankTab = tab;
+  safeSet('rank-tab', tab);
+  renderRanking();
+  if (tab === 'world' && worldState !== 'loading') loadWorld();
+}
+tabWorld.addEventListener('click', () => setTab('world'));
+tabLocal.addEventListener('click', () => setTab('local'));
+
 function showSaved() {
-  if (!lastEntry) return;
-  savedEl.textContent = `Guardado en el puesto ${ranking.indexOf(lastEntry) + 1} como «${lastEntry.name}». Puedes cambiar el nombre aquí.`;
+  if (!current) return;
+  const parts = [];
+  if (GLOBAL_ON) {
+    const w = current.world;
+    if (w.status === 'sent') parts.push(`Puesto ${w.rank} en el mundo`);
+    else if (w.status === 'offline') parts.push('Sin conexión: se enviará al ranking mundial más tarde');
+    else parts.push('Enviando al ranking mundial…');
+  }
+  if (current.local) parts.push(`puesto ${ranking.indexOf(current.local) + 1} en este dispositivo`);
+  let text = parts.join(' · ');
+  text = text.charAt(0).toUpperCase() + text.slice(1);
+  savedEl.textContent = `${text}. Puedes cambiar el nombre aquí.`;
 }
 
 playerInput.addEventListener('input', () => {
   const name = cleanName(playerInput.value);
   safeSet('player-name', name);
-  if (mode === 'over' && lastEntry) {
-    lastEntry.name = name || 'Jugador';
-    saveRanking();
-    renderRanking();
-    showSaved();
-  }
+  if (mode !== 'over' || !current) return;
+  current.name = name || 'Jugador';
+  if (current.local) { current.local.name = current.name; saveRanking(); }
+  const queued = pending.find((p) => p.key === current.world.key);
+  if (queued) { queued.name = current.name; savePending(); }
+  renameWorld();
+  renderRanking();
+  showSaved();
 });
 playerInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { e.preventDefault(); playerInput.blur(); start(); }
 });
 
+function recordScore(m) {
+  const name = playerName();
+  const key = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  current = { name, m, local: addLocalScore(name, m), world: { key, status: 'sending' } };
+  if (GLOBAL_ON) {
+    pending.push({ key, name, m });
+    savePending();
+    flushPending();
+  }
+  showSaved();
+  playerLabel.textContent = 'Nombre para esta puntuación';
+}
+
 function start() {
   playerInput.value = cleanName(playerInput.value);
   safeSet('player-name', playerInput.value);
-  lastEntry = null;
+  current = null;
   savedEl.textContent = '';
   playerLabel.textContent = 'Nombre del jugador';
   initAudio();
@@ -280,10 +423,9 @@ function gameOver(reason) {
   const isRecord = m > best;
   if (isRecord) { best = m; safeSet('best-m', best); }
   if (m > 0) {
-    lastEntry = addScore(m);
-    if (lastEntry) { showSaved(); playerLabel.textContent = 'Nombre para esta puntuación'; }
-    else savedEl.textContent = 'Esta vez no entraste en el ranking.';
+    recordScore(m);
   } else {
+    current = null;
     savedEl.textContent = 'Con 0 m la partida no se guarda en el ranking.';
   }
   introEl.hidden = true;
@@ -805,6 +947,7 @@ function loop(now) {
 
 playBtn.addEventListener('click', start);
 renderRanking();
+if (GLOBAL_ON) { loadWorld(); flushPending(); }
 reset();
 bestEl.textContent = best ? `Récord: ${best} m` : '';
 requestAnimationFrame(loop);

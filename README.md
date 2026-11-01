@@ -13,11 +13,13 @@ Es una PWA (Progressive Web App): se puede jugar en el navegador o instalar como
 ## Ranking mundial (Supabase)
 Las puntuaciones se guardan en el dispositivo y, si está configurado, también en un ranking mundial en Supabase.
 
-1. En Supabase abre **SQL Editor → New query**, pega el contenido de `supabase/ranking.sql` y pulsa **Run**.
+1. En Supabase abre **SQL Editor → New query**, pega el contenido de `supabase/ranking.sql` y pulsa **Run** (vuelve a ejecutarlo cada vez que cambie ese archivo; es seguro repetirlo).
 2. En **Project Settings → API Keys** copia la clave pública (*anon public* o *publishable*).
 3. Pégala en `config.js`, en `supabaseKey`, y sube el cambio.
 
-Reglas de seguridad: cualquiera puede **leer** el ranking y **enviar** puntuaciones (de 1 a 100000 m, nombres de hasta 16 caracteres), pero nadie puede borrar ni editar filas desde el juego. Cada puntuación solo se puede renombrar durante 30 minutos con su token secreto. Para borrar puntuaciones falsas u ofensivas: **Table Editor → scores**.
+Reglas: **una sola puntuación por jugador** (por nombre, sin distinguir mayúsculas), que solo se reemplaza cuando se supera. Cualquiera puede **leer** el ranking y **enviar** puntuaciones (de 1 a 100000 m, nombres de hasta 16 caracteres), pero nadie puede borrar ni editar filas desde el juego. Para borrar puntuaciones falsas u ofensivas: **Table Editor → scores**.
+
+Al perder aparece **Guardar puntuación**; si no se pulsa, la partida se guarda sola al pulsar **Jugar otra vez** o al cerrar el juego.
 
 Si no hay conexión, la puntuación queda en cola y se envía al volver internet.
 

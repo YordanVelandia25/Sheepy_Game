@@ -178,14 +178,18 @@ function puff(x, y, color, n = 6, spd = 120) {
 }
 
 // ---------- Ranking: mundial (Supabase) y de este dispositivo ----------
+// Una sola puntuación por jugador (por nombre, sin distinguir mayúsculas):
+// solo se reemplaza cuando se supera la anterior.
 const RANK_KEY = 'ranking-v1';
-const PENDING_KEY = 'ranking-pendiente-v1';
-const RANK_MAX = 50;   // puntuaciones guardadas en el dispositivo
-const RANK_SHOW = 10;  // puntuaciones visibles
+const PENDING_KEY = 'ranking-pendiente-v2';
+const DRAFT_KEY = 'partida-sin-guardar';
+const RANK_MAX = 50;   // jugadores guardados en el dispositivo
+const RANK_SHOW = 10;  // jugadores visibles
 const playerInput = $('player');
 const rankingEl = $('ranking');
 const savedEl = $('saved');
 const introEl = $('intro');
+const saveBtn = $('save');
 const playerLabel = document.querySelector('label[for="player"]');
 const tabWorld = $('tabWorld');
 const tabLocal = $('tabLocal');
@@ -197,30 +201,48 @@ let ranking = loadRanking();        // ranking del dispositivo
 let worldTop = [];                  // top 10 mundial
 let worldState = 'idle';            // idle | loading | ok | error
 let rankTab = GLOBAL_ON ? (safeGet('rank-tab') || 'world') : 'local';
-let current = null;                 // última partida: { name, m, local, world }
+let current = null;                 // última partida: { m, saved, name, local, world }
 best = Math.max(best, ranking[0]?.m || 0);
 playerInput.value = safeGet('player-name') || '';
 
 function loadJSON(key, fallback) {
   try { const v = JSON.parse(safeGet(key) || 'null'); return v ?? fallback; } catch { return fallback; }
 }
+function byScore(a, b) { return b.m - a.m || a.t - b.t; }
+function cleanName(s) { return (s || '').replace(/\s+/g, ' ').trim().slice(0, 16); }
+function nameKey(s) { return cleanName(s).toLowerCase(); }
+function playerName() { return cleanName(playerInput.value) || 'Jugador'; }
+
 function loadRanking() {
   const r = loadJSON(RANK_KEY, []);
   if (!Array.isArray(r)) return [];
-  return r.filter((e) => e && typeof e.name === 'string' && Number.isFinite(e.m)).sort(byScore);
+  // Deja solo la mejor puntuación de cada jugador (también limpia datos antiguos)
+  const bestBy = new Map();
+  for (const e of r) {
+    if (!e || typeof e.name !== 'string' || !Number.isFinite(e.m)) continue;
+    const k = nameKey(e.name), prev = bestBy.get(k);
+    if (!prev || e.m > prev.m) bestBy.set(k, e);
+  }
+  return [...bestBy.values()].sort(byScore).slice(0, RANK_MAX);
 }
-function byScore(a, b) { return b.m - a.m || a.t - b.t; }
 function saveRanking() { safeSet(RANK_KEY, JSON.stringify(ranking)); }
-function cleanName(s) { return (s || '').replace(/\s+/g, ' ').trim().slice(0, 16); }
-function playerName() { return cleanName(playerInput.value) || 'Jugador'; }
 
-function addLocalScore(name, m) {
-  const entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, m, t: Date.now() };
-  ranking.push(entry);
+// Guarda en el dispositivo. Devuelve { entry, improved }.
+function saveLocalScore(name, m) {
+  let entry = ranking.find((e) => nameKey(e.name) === nameKey(name));
+  let improved = false;
+  if (!entry) {
+    entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, m, t: Date.now() };
+    ranking.push(entry);
+    improved = true;
+  } else if (m > entry.m) {
+    Object.assign(entry, { name, m, t: Date.now() });
+    improved = true;
+  }
   ranking.sort(byScore);
   ranking = ranking.slice(0, RANK_MAX);
   saveRanking();
-  return ranking.includes(entry) ? entry : null;
+  return { entry: ranking.includes(entry) ? entry : null, improved };
 }
 
 // --- API de Supabase (REST, sin librerías) ---
@@ -246,7 +268,7 @@ async function loadWorld() {
   worldState = worldTop.length ? 'ok' : 'loading';
   renderRanking();
   try {
-    worldTop = await api(`/rest/v1/scores?select=id,name,meters&order=meters.desc,created_at.asc&limit=${RANK_SHOW}`);
+    worldTop = await api(`/rest/v1/scores?select=name,meters&order=meters.desc,created_at.asc&limit=${RANK_SHOW}`);
     worldState = 'ok';
   } catch {
     worldState = 'error';
@@ -263,43 +285,67 @@ let flushing = false;
 async function flushPending() {
   if (!GLOBAL_ON || flushing || !pending.length) return;
   flushing = true;
-  while (pending.length) {
-    const item = pending[0];
-    if (current && current.world.key === item.key) current.world.status = 'sending';
-    showSaved();
-    try {
-      const [row] = await api('/rest/v1/rpc/submit_score', { p_name: item.name, p_meters: item.m });
-      pending.shift(); savePending();
-      if (current && current.world.key === item.key) {
-        Object.assign(current.world, { status: 'sent', id: row.score_id, token: row.token, rank: row.score_rank, sentName: item.name });
-        if (current.name !== item.name) renameWorld(); // se cambió el nombre mientras se enviaba
+  try {
+    while (pending.length) {
+      const item = pending[0];
+      // La partida en pantalla puede cambiar mientras se envía: se guarda la referencia
+      const game = current && current.world?.key === item.key ? current : null;
+      try {
+        const [row] = await api('/rest/v1/rpc/submit_score', { p_name: item.name, p_meters: item.m });
+        pending.shift(); savePending();
+        if (game) Object.assign(game.world, { status: 'sent', rank: row.score_rank, best: row.best_meters, improved: row.improved });
+      } catch {
+        if (game) game.world.status = 'offline';
+        break;
       }
-    } catch {
-      if (current && current.world.key === item.key) current.world.status = 'offline';
-      break;
     }
+  } finally {
+    flushing = false;
   }
-  flushing = false;
   showSaved();
   loadWorld();
 }
 window.addEventListener('online', flushPending);
 
-let renameTimer = 0;
-function renameWorld() {
-  clearTimeout(renameTimer);
-  renameTimer = setTimeout(async () => {
-    const w = current?.world;
-    if (!w || w.status !== 'sent' || w.sentName === current.name) return;
-    const name = current.name;
-    try {
-      await api('/rest/v1/rpc/rename_score', { p_id: w.id, p_token: w.token, p_name: name });
-      w.sentName = name;
-      const row = worldTop.find((r) => r.id === w.id);
-      if (row) row.name = name;
-      renderRanking();
-    } catch { /* si falla, queda el nombre anterior en el ranking mundial */ }
-  }, 600);
+// --- Guardar la partida ---
+function commitScore() {
+  if (!current || current.saved) return;
+  const name = playerName();
+  playerInput.value = name;
+  safeSet('player-name', name);
+  const local = saveLocalScore(name, current.m);
+  const key = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  Object.assign(current, { saved: true, name, local: local.entry, localImproved: local.improved, world: { key, status: 'sending' } });
+  safeSet(DRAFT_KEY, '');
+  if (GLOBAL_ON) {
+    pending.push({ key, name, m: current.m });
+    savePending();
+    flushPending();
+  }
+  saveBtn.hidden = true;
+  playerLabel.textContent = 'Nombre del jugador';
+  showSaved();
+  renderRanking();
+}
+saveBtn.addEventListener('click', commitScore);
+
+// Si se cierra el juego sin guardar, se guarda solo
+function commitOnExit() { if (mode === 'over' && current && !current.saved) commitScore(); }
+window.addEventListener('pagehide', commitOnExit);
+document.addEventListener('visibilitychange', () => { if (document.hidden) commitOnExit(); });
+
+// Partida que quedó sin guardar en una sesión anterior (p. ej. se cerró la app)
+function recoverDraft() {
+  const d = loadJSON(DRAFT_KEY, null);
+  if (!d || !Number.isFinite(d.m) || d.m <= 0) return;
+  const saved = playerInput.value;
+  playerInput.value = d.name || saved;
+  current = { m: d.m, saved: false, world: {} };
+  commitScore();
+  current = null;
+  playerInput.value = saved || playerInput.value;
+  safeSet('player-name', cleanName(playerInput.value));
+  savedEl.textContent = '';
 }
 
 // --- Dibujo de la lista ---
@@ -329,24 +375,24 @@ function renderRanking() {
   tabWorld.setAttribute('aria-selected', rankTab === 'world');
   tabLocal.setAttribute('aria-selected', rankTab === 'local');
   rankingEl.replaceChildren();
+  const myKey = current?.saved ? nameKey(current.name) : null;
 
   if (rankTab === 'world') {
     if (worldState === 'loading' || worldState === 'idle') { rankingEl.appendChild(note('Cargando el ranking mundial…')); return; }
     if (worldState === 'error') { rankingEl.appendChild(note('No se pudo cargar el ranking mundial. Revisa tu conexión.')); return; }
     if (!worldTop.length) { rankingEl.appendChild(note('Todavía no hay puntuaciones en el mundo. ¡Sé la primera persona!')); return; }
-    const myId = current?.world.id;
-    worldTop.forEach((r, i) => rankingEl.appendChild(rankRow(r.name, r.meters, i + 1, r.id === myId)));
-    if (myId && !worldTop.some((r) => r.id === myId)) {
-      rankingEl.append(gapRow(), rankRow(current.name, current.m, current.world.rank, true));
+    worldTop.forEach((r, i) => rankingEl.appendChild(rankRow(r.name, r.meters, i + 1, nameKey(r.name) === myKey)));
+    const w = current?.world;
+    if (myKey && w?.status === 'sent' && !worldTop.some((r) => nameKey(r.name) === myKey)) {
+      rankingEl.append(gapRow(), rankRow(current.name, w.best, w.rank, true));
     }
     return;
   }
 
   if (!ranking.length) { rankingEl.appendChild(note('Todavía no hay puntuaciones. ¡Juega una partida para estrenar el ranking!')); return; }
-  const mine = current?.local;
-  ranking.slice(0, RANK_SHOW).forEach((e, i) => rankingEl.appendChild(rankRow(e.name, e.m, i + 1, e === mine)));
-  const idx = mine ? ranking.indexOf(mine) : -1;
-  if (idx >= RANK_SHOW) rankingEl.append(gapRow(), rankRow(mine.name, mine.m, idx + 1, true));
+  ranking.slice(0, RANK_SHOW).forEach((e, i) => rankingEl.appendChild(rankRow(e.name, e.m, i + 1, nameKey(e.name) === myKey)));
+  const idx = myKey ? ranking.findIndex((e) => nameKey(e.name) === myKey) : -1;
+  if (idx >= RANK_SHOW) rankingEl.append(gapRow(), rankRow(ranking[idx].name, ranking[idx].m, idx + 1, true));
 }
 
 function setTab(tab) {
@@ -360,53 +406,48 @@ tabLocal.addEventListener('click', () => setTab('local'));
 
 function showSaved() {
   if (!current) return;
-  const parts = [];
-  if (GLOBAL_ON) {
-    const w = current.world;
-    if (w.status === 'sent') parts.push(`Puesto ${w.rank} en el mundo`);
-    else if (w.status === 'offline') parts.push('Sin conexión: se enviará al ranking mundial más tarde');
-    else parts.push('Enviando al ranking mundial…');
+  if (!current.saved) {
+    savedEl.textContent = 'Escribe tu nombre y guarda. Cada jugador tiene una sola puntuación: solo se reemplaza si la superas.';
+    return;
   }
-  if (current.local) parts.push(`puesto ${ranking.indexOf(current.local) + 1} en este dispositivo`);
-  let text = parts.join(' · ');
-  text = text.charAt(0).toUpperCase() + text.slice(1);
-  savedEl.textContent = `${text}. Puedes cambiar el nombre aquí.`;
+  const name = `«${current.name}»`;
+  const w = current.world;
+  if (GLOBAL_ON && w.status === 'sent') {
+    savedEl.textContent = w.improved
+      ? `¡Nuevo récord de ${name}! Puesto ${w.rank} en el mundo.`
+      : `${name} ya tenía ${w.best} m, así que se mantiene esa marca (puesto ${w.rank} en el mundo).`;
+    return;
+  }
+  const localBest = current.local?.m;
+  const localText = current.localImproved
+    ? `Guardado como ${name}.`
+    : `${name} ya tenía ${localBest} m en este dispositivo, así que se mantiene esa marca.`;
+  if (GLOBAL_ON && w.status === 'offline') savedEl.textContent = `${localText} Sin conexión: se enviará al ranking mundial más tarde.`;
+  else if (GLOBAL_ON) savedEl.textContent = `${localText} Enviando al ranking mundial…`;
+  else savedEl.textContent = localText;
 }
 
 playerInput.addEventListener('input', () => {
   const name = cleanName(playerInput.value);
   safeSet('player-name', name);
-  if (mode !== 'over' || !current) return;
-  current.name = name || 'Jugador';
-  if (current.local) { current.local.name = current.name; saveRanking(); }
-  const queued = pending.find((p) => p.key === current.world.key);
-  if (queued) { queued.name = current.name; savePending(); }
-  renameWorld();
-  renderRanking();
-  showSaved();
+  if (mode === 'over' && current && !current.saved) {
+    safeSet(DRAFT_KEY, JSON.stringify({ name, m: current.m }));
+  }
 });
 playerInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { e.preventDefault(); playerInput.blur(); start(); }
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  if (mode === 'over' && current && !current.saved) commitScore();
+  else { playerInput.blur(); start(); }
 });
 
-function recordScore(m) {
-  const name = playerName();
-  const key = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  current = { name, m, local: addLocalScore(name, m), world: { key, status: 'sending' } };
-  if (GLOBAL_ON) {
-    pending.push({ key, name, m });
-    savePending();
-    flushPending();
-  }
-  showSaved();
-  playerLabel.textContent = 'Nombre para esta puntuación';
-}
-
 function start() {
+  commitOnExit(); // "Jugar otra vez" guarda la partida anterior si no se guardó
   playerInput.value = cleanName(playerInput.value);
   safeSet('player-name', playerInput.value);
   current = null;
   savedEl.textContent = '';
+  saveBtn.hidden = true;
   playerLabel.textContent = 'Nombre del jugador';
   initAudio();
   if (audio && audio.state === 'suspended') audio.resume();
@@ -423,9 +464,14 @@ function gameOver(reason) {
   const isRecord = m > best;
   if (isRecord) { best = m; safeSet('best-m', best); }
   if (m > 0) {
-    recordScore(m);
+    current = { m, saved: false, world: {} };
+    safeSet(DRAFT_KEY, JSON.stringify({ name: playerName(), m }));
+    saveBtn.hidden = false;
+    playerLabel.textContent = 'Nombre para esta puntuación';
+    showSaved();
   } else {
     current = null;
+    saveBtn.hidden = true;
     savedEl.textContent = 'Con 0 m la partida no se guarda en el ranking.';
   }
   introEl.hidden = true;
@@ -946,6 +992,7 @@ function loop(now) {
 }
 
 playBtn.addEventListener('click', start);
+recoverDraft();
 renderRanking();
 if (GLOBAL_ON) { loadWorld(); flushPending(); }
 reset();

@@ -1,6 +1,6 @@
 // Service worker: guarda los archivos en caché para que el juego funcione sin conexión.
 // Usa primero la red, así que los cambios publicados llegan sin esperar. Sube la versión si cambias la lista de archivos.
-const CACHE = 'sheepy-v23';
+const CACHE = 'sheepy-v24';
 const ASSETS = [
   './',
   'index.html',

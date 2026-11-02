@@ -49,6 +49,9 @@ const BATS_FROM_M = 450;   // murciélagos (como las abejas)
 const HAT_FROM_M = 500;    // gorrito con hélice: impulsa a Sheepy 50 m (poco frecuente)
 const HAT_BOOST_M = 50;
 const HAT_SPEED = 1150;
+const SPRING_M = 30;       // resorte en los tablones: impulsa 30 m (desde el inicio, frecuente)
+const SPRING_CHANCE = 0.08;
+const SPRING_V = Math.sqrt(2 * GRAVITY * SPRING_M * PX_PER_M);
 
 // ---------- Pantalla ----------
 let W, H, dpr, scale, GH, offX;
@@ -98,6 +101,7 @@ const sfx = {
   record: () => { tone('sine', 520, 780, 0.12, 0.1); setTimeout(() => tone('sine', 780, 1040, 0.15, 0.1), 120); },
   shield: () => { tone('triangle', 400, 900, 0.18, 0.1); setTimeout(() => tone('sine', 900, 1200, 0.2, 0.08), 110); },
   whoosh: () => { tone('sawtooth', 200, 1100, 0.6, 0.05); tone('sine', 300, 1300, 0.6, 0.08); },
+  spring: () => { tone('square', 160, 720, 0.28, 0.06); tone('sine', 220, 990, 0.32, 0.1); },
   heal: () => { tone('sine', 660, 880, 0.1, 0.1); setTimeout(() => tone('sine', 880, 1320, 0.16, 0.1), 90); },
 };
 function renderSoundBtn() {
@@ -211,9 +215,12 @@ function genBar() {
   if (m >= BATS_FROM_M && Math.random() < 0.04 + 0.1 * batD) flyer('bat', batD, 60);
   else if (m >= BEES_FROM_M && Math.random() < 0.06 + 0.16 * beeD) flyer('bee', beeD, 50);
 
-  // En el tablón: cardos desde 100 m y pinchos desde 300 m (uno por tablón)
-  if (!prize && type === 'normal' && w > 70) {
-    const off = Math.random() < 0.5 ? 16 : w - 16;
+  // En el tablón: resortes desde el inicio, cardos desde 100 m y pinchos desde 300 m (uno por tablón)
+  const off = Math.random() < 0.5 ? 16 : w - 16;
+  if (!prize && type !== 'fragile' && m > 8 && Math.random() < SPRING_CHANCE) {
+    bar.spring = { kind: 'spring', bar, off, x: 0, y: 0, r: 0, squish: 0 };
+    foes.push(bar.spring);
+  } else if (!prize && type === 'normal' && w > 70) {
     if (m >= SPIKES_FROM_M && Math.random() < 0.05 + 0.1 * spikeD) foes.push({ kind: 'spike', bar, off, x: 0, y: 0, r: 12 });
     else if (m >= SAFE_M && Math.random() < 0.08 + 0.14 * thornD) foes.push({ kind: 'thorn', bar, off, x: 0, y: 0, r: 12 });
   }
@@ -711,7 +718,16 @@ function update(dt) {
         sheep.squash = 1;
         bumpLimbs(sheep);
         puff(sheep.x, b.y, '#ffffff', 5, 90);
-        if (b.type === 'fragile') {
+        const sp = b.spring;
+        if (sp && Math.abs(sheep.x - (b.x + sp.off)) < 13 + SHEEP_W * 0.3) {
+          // Resorte: salto gigante de 30 m
+          sheep.y = b.y - 12;
+          sheep.vy = -SPRING_V;
+          sp.squish = 1;
+          sheep.earV -= 10; sheep.armV -= 8;
+          puff(b.x + sp.off, b.y - 10, '#ffc33e', 8, 140);
+          sfx.spring();
+        } else if (b.type === 'fragile') {
           b.broken = true;
           sfx.crack();
           puff(b.x + b.w / 2, b.y + 6, '#dcc08e', 8, 150);
@@ -735,6 +751,11 @@ function update(dt) {
       if (f.x < 18) { f.x = 18; f.vx *= -1; }
       if (f.x > GW - 18) { f.x = GW - 18; f.vx *= -1; }
       f.y = f.baseY + Math.sin(f.t * 4) * 9 + Math.sin(f.t * 1.7) * 6;
+    } else if (f.kind === 'spring') {
+      f.x = f.bar.x + f.off;
+      f.y = f.bar.y;
+      f.squish = Math.max(0, f.squish - dt * 3);
+      continue;
     } else if (PRIZES.has(f.kind)) {
       f.t += dt;
       f.x = f.bar.x + f.off;
@@ -1290,6 +1311,29 @@ function drawBat(f) {
   ctx.beginPath(); ctx.moveTo(0.4, 2); ctx.lineTo(1.2, 4.5); ctx.lineTo(2, 2); ctx.closePath(); ctx.fill(); ctx.stroke();
   ctx.restore();
 }
+// Resorte sobre el tablón: no hace daño, lanza a Sheepy 30 m
+function drawSpring(f) {
+  const k = f.squish;                         // 1 justo al saltar: se estira y luego vuelve
+  const h = 12 + Math.sin(k * Math.PI) * 9;   // altura de la espiral
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  ctx.strokeStyle = OUTLINE; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  // Base
+  ctx.fillStyle = '#6f7682'; ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.rect(-10, -3, 20, 3); ctx.fill(); ctx.stroke();
+  // Espiral en zigzag
+  const turns = 4, top = -3 - h;
+  ctx.lineWidth = 4.5; ctx.strokeStyle = OUTLINE;
+  const zig = () => { ctx.beginPath(); ctx.moveTo(-7, -3); for (let i = 1; i <= turns * 2; i++) ctx.lineTo(i % 2 ? 7 : -7, -3 - (h * i) / (turns * 2)); };
+  zig(); ctx.stroke();
+  ctx.lineWidth = 2.2; ctx.strokeStyle = '#c9ced6'; zig(); ctx.stroke();
+  // Plato superior
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 1.6; ctx.fillStyle = '#ff7751';
+  ctx.beginPath(); ctx.roundRect(-12, top - 4, 24, 5, 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.fillRect(-9, top - 3, 8, 1.5);
+  ctx.restore();
+}
+
 // Pinchos metálicos sobre el tablón: misma mecánica que el cardo
 function drawSpike(f) {
   ctx.save();
@@ -1369,7 +1413,7 @@ function draw() {
   }
 }
 
-const FOE_DRAW = { bee: drawBee, bat: drawBat, thorn: drawThorn, spike: drawSpike, heart: drawHeart, shield: drawShieldPrize, hat: drawHatPrize };
+const FOE_DRAW = { bee: drawBee, bat: drawBat, thorn: drawThorn, spike: drawSpike, spring: drawSpring, heart: drawHeart, shield: drawShieldPrize, hat: drawHatPrize };
 
 // ---------- Bucle ----------
 let last = performance.now();

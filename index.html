@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grandstander:wght@800;900&family=Jost:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="style.css?v=18">
+  <link rel="stylesheet" href="style.css?v=19">
 </head>
 <body>
 <!--GAME-START-->
@@ -78,15 +78,15 @@
       </div>
       <section class="panel ranking" aria-labelledby="rankingTitle">
         <h2 id="rankingTitle">Ranking mundial</h2>
-        <ol id="ranking"></ol>
+        <div id="ranking"></div>
       </section>
 <!--GAME-END-->
       <button id="install" type="button" hidden>Instalar aplicación</button>
     </div>
   </div>
 
-  <script src="config.js?v=18"></script>
-  <script src="game.js?v=18"></script>
+  <script src="config.js?v=19"></script>
+  <script src="game.js?v=19"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));

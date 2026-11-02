@@ -6,8 +6,11 @@ const $ = (id) => document.getElementById(id);
 // ---------- Pantalla de inicio ----------
 // Va al principio para que el botón Iniciar funcione aunque algo más falle.
 const splash = $('splash');
+let menuReadyAt = 0; // evita que la misma pulsación de Iniciar empiece la partida
 function closeSplash() {
   if (splash.classList.contains('leaving')) return;
+  menuReadyAt = performance.now() + 900;
+  document.activeElement?.blur?.();
   try {
     initAudio();
     if (audio && audio.state === 'suspended') audio.resume();
@@ -104,7 +107,8 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = true;
   if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = true;
-  if ((e.key === 'Enter' || e.key === ' ') && mode !== 'play') { e.preventDefault(); start(); }
+  // Enter/espacio empiezan la partida desde el menú, pero no justo después de la pantalla de inicio
+  if ((e.key === 'Enter' || e.key === ' ') && mode !== 'play' && !e.repeat && performance.now() > menuReadyAt) { e.preventDefault(); start(); }
 });
 window.addEventListener('keyup', (e) => {
   if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = false;
@@ -321,6 +325,7 @@ async function flushPending() {
         pending.shift(); savePending();
         if (!row || row.best_meters == null) throw Object.assign(new Error('respuesta inesperada; vuelve a ejecutar supabase/ranking.sql'), { server: true });
         if (game) Object.assign(game.world, { status: 'sent', rank: row.score_rank, best: row.best_meters, improved: row.improved });
+        if (nameKey(item.name) === nameKey(playerInput.value)) me = { name: item.name, best: row.best_meters, rank: row.score_rank };
       } catch (err) {
         if (game) Object.assign(game.world, { status: err.server ? 'error' : 'offline', error: err.message });
         console.warn('Ranking mundial:', err);
@@ -376,47 +381,110 @@ function recoverDraft() {
   savedEl.textContent = '';
 }
 
-// --- Dibujo de la lista ---
-function rankRow(name, m, pos, me) {
-  const li = document.createElement('li');
-  if (me) li.className = 'me';
-  const p = document.createElement('span'); p.className = 'pos'; p.textContent = pos;
-  const n = document.createElement('span'); n.className = 'name'; n.textContent = name;
-  const v = document.createElement('span'); v.className = 'score'; v.textContent = `${m} m`;
-  li.append(p, n, v);
-  return li;
+// --- Dibujo del ranking: podio (1-3), lista (4-10) y tu posición ---
+const AVATAR = 'sprites/avatar-sheepy.webp';
+let me = null;          // { name, best, rank } del jugador actual en el ranking mundial
+let meLoading = 0;
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
 }
-function note(text) {
-  const li = document.createElement('li');
-  li.className = 'empty';
-  li.textContent = text;
-  return li;
+function avatar(cls) {
+  const wrap = el('span', 'avatar ' + (cls || ''));
+  const im = document.createElement('img');
+  im.src = AVATAR; im.alt = ''; im.width = 80; im.height = 80; im.decoding = 'async';
+  wrap.appendChild(im);
+  return wrap;
 }
-function gapRow() {
-  const li = document.createElement('li');
-  li.className = 'gap'; li.textContent = '···';
-  return li;
+function note(text) { return el('p', 'rank-note', text); }
+
+function podiumSpot(r, place, isMe) {
+  const spot = el('div', `spot p${place}${isMe ? ' me' : ''}`);
+  const av = avatar();
+  if (place === 1) av.appendChild(el('span', 'crown'));
+  av.appendChild(el('span', 'badge', place));
+  spot.append(av, el('span', 'spot-name', r.name), el('span', 'spot-score', `${r.meters} m`));
+  const block = el('div', 'block');
+  block.appendChild(el('span', 'block-num', place));
+  spot.appendChild(block);
+  return spot;
 }
 
 function renderRanking() {
   rankingEl.replaceChildren();
-  const myKey = current?.saved ? nameKey(current.name) : null;
+  const myKey = me ? nameKey(me.name) : (current?.saved ? nameKey(current.name) : null);
   if (!GLOBAL_ON) { rankingEl.appendChild(note('El ranking mundial está disponible en la versión publicada del juego.')); return; }
-  {
-    if (worldState === 'loading' || worldState === 'idle') { rankingEl.appendChild(note('Cargando el ranking mundial…')); return; }
-    if (worldState === 'error') {
-      rankingEl.appendChild(note(worldError
-        ? `No se pudo cargar el ranking mundial (error ${worldError}).`
-        : 'No se pudo cargar el ranking mundial. Revisa tu conexión.'));
-      return;
-    }
-    if (!worldTop.length) { rankingEl.appendChild(note('Todavía no hay puntuaciones en el mundo. ¡Sé la primera persona!')); return; }
-    worldTop.forEach((r, i) => rankingEl.appendChild(rankRow(r.name, r.meters, i + 1, nameKey(r.name) === myKey)));
-    const w = current?.world;
-    if (myKey && w?.status === 'sent' && !worldTop.some((r) => nameKey(r.name) === myKey)) {
-      rankingEl.append(gapRow(), rankRow(current.name, w.best, w.rank, true));
-    }
+  if (worldState === 'loading' || worldState === 'idle') { rankingEl.appendChild(note('Cargando el ranking mundial…')); return; }
+  if (worldState === 'error') {
+    rankingEl.appendChild(note(worldError
+      ? `No se pudo cargar el ranking mundial (error ${worldError}).`
+      : 'No se pudo cargar el ranking mundial. Revisa tu conexión.'));
+    return;
   }
+  if (!worldTop.length) { rankingEl.appendChild(note('Todavía no hay puntuaciones en el mundo. ¡Sé la primera persona!')); return; }
+
+  // Podio: 2.º a la izquierda, 1.º al centro, 3.º a la derecha
+  const podium = el('div', 'podium');
+  for (const place of [2, 1, 3]) {
+    const r = worldTop[place - 1];
+    podium.appendChild(r ? podiumSpot(r, place, nameKey(r.name) === myKey) : el('div', `spot p${place} empty`));
+  }
+  rankingEl.appendChild(podium);
+
+  // Lista del 4.º al 10.º
+  if (worldTop.length > 3) {
+    const table = el('div', 'rank-table');
+    const head = el('div', 'rank-head');
+    head.append(el('span', null, 'Puesto'), el('span', null, 'Jugador'), el('span', null, 'Metros'));
+    table.appendChild(head);
+    worldTop.slice(3).forEach((r, i) => {
+      const row = el('div', 'rank-row' + (nameKey(r.name) === myKey ? ' me' : ''));
+      row.append(el('span', 'pos', i + 4), avatar('sm'), el('span', 'name', r.name), el('span', 'score', `${r.meters} m`));
+      table.appendChild(row);
+    });
+    rankingEl.appendChild(table);
+  }
+
+  // Tu posición
+  if (me && me.rank) {
+    const bar = el('div', 'me-bar');
+    const info = el('div', 'me-info');
+    const nm = el('span', 'me-name', me.name);
+    nm.appendChild(el('span', 'you', 'TÚ'));
+    info.append(nm, el('span', 'me-best', `Mejor marca: ${me.best} m`));
+    bar.append(el('span', 'me-rank', `#${me.rank}`), avatar('sm'), info);
+    rankingEl.appendChild(bar);
+  }
+}
+
+// Busca la mejor marca y el puesto de un nombre en el ranking mundial
+async function loadMe(name) {
+  if (!GLOBAL_ON) return;
+  const key = cleanName(name);
+  if (!key) { me = null; renderRanking(); return; }
+  const ticket = ++meLoading;
+  try {
+    const like = key.replace(/[\\%_*]/g, (c) => '\\' + c);
+    const rows = await api(`/rest/v1/scores?select=name,meters&name=ilike.${encodeURIComponent(like)}&limit=1`);
+    if (ticket !== meLoading) return;
+    if (!rows.length) { me = null; renderRanking(); return; }
+    const best = rows[0].meters;
+    const res = await fetch(`${CFG.supabaseUrl.replace(/\/$/, '')}/rest/v1/scores?select=id&meters=gt.${best}`, {
+      method: 'HEAD',
+      headers: {
+        apikey: CFG.supabaseKey,
+        Prefer: 'count=exact',
+        ...(CFG.supabaseKey.startsWith('eyJ') ? { Authorization: `Bearer ${CFG.supabaseKey}` } : {}),
+      },
+    });
+    if (ticket !== meLoading) return;
+    const total = Number((res.headers.get('content-range') || '').split('/')[1]);
+    me = { name: rows[0].name, best, rank: Number.isFinite(total) ? total + 1 : null };
+  } catch { if (ticket === meLoading) me = null; }
+  renderRanking();
 }
 
 function showSaved() {
@@ -441,9 +509,12 @@ function showSaved() {
     : `${name} ya tenía ${current.local?.m} m, así que se mantiene esa marca.`;
 }
 
+let meTimer = 0;
 playerInput.addEventListener('input', () => {
   const name = cleanName(playerInput.value);
   safeSet('player-name', name);
+  clearTimeout(meTimer);
+  meTimer = setTimeout(() => loadMe(name), 500);
   if (mode === 'over' && current && !current.saved) {
     safeSet(DRAFT_KEY, JSON.stringify({ name, m: current.m }));
   }
@@ -456,6 +527,7 @@ playerInput.addEventListener('keydown', (e) => {
 });
 
 function start() {
+  if (!splash.hidden || performance.now() < menuReadyAt) return; // aún en la pantalla de inicio
   commitOnExit(); // "Jugar otra vez" guarda la partida anterior si no se guardó
   playerInput.value = cleanName(playerInput.value);
   safeSet('player-name', playerInput.value);
@@ -1062,7 +1134,7 @@ playBtn.addEventListener('click', start);
 
 recoverDraft();
 renderRanking();
-if (GLOBAL_ON) { loadWorld(); flushPending(); }
+if (GLOBAL_ON) { loadWorld(); flushPending(); loadMe(playerInput.value); }
 reset();
 bestEl.textContent = best ? `Récord: ${best} m` : '';
 requestAnimationFrame(loop);

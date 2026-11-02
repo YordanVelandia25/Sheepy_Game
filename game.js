@@ -526,12 +526,12 @@ function animateLimbs(s, dt) {
   // Orejas: al subir caen por la inercia; al caer se levantan con el aire
   spring(s, 'ear', t < 0 ? t * 0.6 : t * 1.05, dt, 170, 7);
   // Brazos (enteros, desde el hombro): al subir se levantan; al caer se abren y aletean
-  const flap = down > 0.1 ? Math.sin(time * 18) * 0.35 * down : 0;
-  spring(s, 'arm', up * 1.25 + down * 0.55 + flap, dt, 150, 10);
+  const flap = down > 0.1 ? Math.sin(time * 18) * 0.55 * down : 0;
+  spring(s, 'arm', up * 1.75 + down * 0.85 + flap, dt, 160, 8);
 }
 function bumpLimbs(s) { // golpe al aterrizar: orejas y brazos rebotan
   s.earV -= 16;
-  s.armV -= 8;
+  s.armV -= 13;
 }
 
 // ---------- Actualización ----------
@@ -942,8 +942,8 @@ function drawSheep(s) {
   // Cuerpo
   ctx.drawImage(img.body, lx, top, SHEEP_W, img.body.naturalHeight * SPR_K);
 
-  // Parpadeo (o ojos cerrados al recibir un golpe)
-  const blink = Math.sin(time * 1.3) > 0.985 || inv > 1.1;
+  // Parpadeo
+  const blink = Math.sin(time * 1.3) > 0.985;
   if (blink) {
     for (const [ex, ey] of EYES) {
       const x = lx + ex * SPR_K, y = top + ey * SPR_K;

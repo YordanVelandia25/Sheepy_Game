@@ -49,6 +49,8 @@ const BATS_FROM_M = 450;   // murciélagos (como las abejas)
 const HAT_FROM_M = 500;    // gorrito con hélice: impulsa a Sheepy 50 m (poco frecuente)
 const HAT_BOOST_M = 50;
 const HAT_SPEED = 1150;
+const FLIP_FROM_M = 300;   // chancleta voladora: cruza la pantalla de lado a lado (poco frecuente)
+const FLIP_WARN = 1.1;     // segundos de aviso antes de que entre
 const SPRING_M = 30;       // resorte en los tablones: impulsa 30 m (desde el inicio, frecuente)
 const SPRING_CHANCE = 0.08;
 const SPRING_V = Math.sqrt(2 * GRAVITY * SPRING_M * PX_PER_M);
@@ -102,6 +104,7 @@ const sfx = {
   shield: () => { tone('triangle', 400, 900, 0.18, 0.1); setTimeout(() => tone('sine', 900, 1200, 0.2, 0.08), 110); },
   whoosh: () => { tone('sawtooth', 200, 1100, 0.6, 0.05); tone('sine', 300, 1300, 0.6, 0.08); },
   spring: () => { tone('square', 160, 720, 0.28, 0.06); tone('sine', 220, 990, 0.32, 0.1); },
+  alert: () => { tone('square', 880, 660, 0.12, 0.06); setTimeout(() => tone('square', 880, 660, 0.12, 0.06), 160); },
   heal: () => { tone('sine', 660, 880, 0.1, 0.1); setTimeout(() => tone('sine', 880, 1320, 0.16, 0.1), 90); },
 };
 function renderSoundBtn() {
@@ -147,7 +150,7 @@ function inputDir() {
 // ---------- Estado ----------
 let mode = 'menu'; // menu | play | over
 let sheep, bars, foes, parts, camY, topY, maxY, hearts, inv, time, newRecordShown, nextHeartM;
-let shield, boost, nextShieldM, nextHatM;
+let shield, boost, nextShieldM, nextHatM, nextFlipM;
 let best = Number(safeGet('best-m') || 0);
 
 const clouds = Array.from({ length: 5 }, () => ({
@@ -171,6 +174,8 @@ function reset() {
   boost = null;
   nextShieldM = SHIELD_FROM_M + Math.random() * 60;
   nextHatM = HAT_FROM_M + Math.random() * 80;
+  nextFlipM = FLIP_FROM_M + Math.random() * 80;
+  hideAnnounce();
   inv = 0;
   time = 0;
   newRecordShown = false;
@@ -628,6 +633,48 @@ function hurt() {
   if (hearts <= 0) gameOver('hit');
 }
 
+// ---------- Chancleta voladora ----------
+const announceEl = $('announce');
+let announceTimer = 0;
+function spawnFlip() {
+  const dir = Math.random() < 0.5 ? 1 : -1;
+  const sy = Math.min(Math.max(sheep.y - camY - 30 - Math.random() * 60, 140), GH - 220);
+  const spd = 230 + Math.min(meters() / 2000, 1) * 120;
+  foes.push({ kind: 'flip', x: dir > 0 ? -45 : GW + 45, y: camY + sy, sy, vx: dir * spd, warn: FLIP_WARN, t: 0, r: 15 });
+  showAnnounce('¡Una Chancleta Voladora!');
+  sfx.alert();
+}
+function showAnnounce(text) {
+  announceEl.querySelector('span').textContent = text;
+  announceEl.hidden = false;
+  announceEl.classList.remove('show'); void announceEl.offsetWidth; announceEl.classList.add('show');
+  clearTimeout(announceTimer);
+  announceTimer = setTimeout(hideAnnounce, 2400);
+  speak(text.replace(/[¡!]/g, ''));
+}
+function hideAnnounce() {
+  clearTimeout(announceTimer);
+  if (announceEl) { announceEl.hidden = true; announceEl.classList.remove('show'); }
+}
+// Voz del anuncio con la síntesis de voz del navegador (sin archivos de audio)
+let voiceEs = null;
+function pickVoice() {
+  const vs = window.speechSynthesis?.getVoices?.() || [];
+  voiceEs = vs.find((v) => /^es[-_](419|MX|US|CO)/i.test(v.lang)) || vs.find((v) => /^es/i.test(v.lang)) || null;
+}
+if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.addEventListener?.('voiceschanged', pickVoice); }
+function speak(text) {
+  if (!soundOn || !('speechSynthesis' in window)) return;
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = voiceEs?.lang || 'es-ES';
+    if (voiceEs) u.voice = voiceEs;
+    u.rate = 1.05; u.pitch = 1.25; u.volume = 1;
+    speechSynthesis.speak(u);
+  } catch (err) { console.warn('Sin voz:', err); }
+}
+
 const PRIZES = new Set(['heart', 'shield', 'hat']);
 function collectPrize(f) {
   f.taken = true;
@@ -751,6 +798,12 @@ function update(dt) {
       if (f.x < 18) { f.x = 18; f.vx *= -1; }
       if (f.x > GW - 18) { f.x = GW - 18; f.vx *= -1; }
       f.y = f.baseY + Math.sin(f.t * 4) * 9 + Math.sin(f.t * 1.7) * 6;
+    } else if (f.kind === 'flip') {
+      f.y = camY + f.sy;
+      if (f.warn > 0) { f.warn -= dt; continue; }   // aún avisando: no se mueve ni hace daño
+      f.t += dt;
+      f.x += f.vx * dt;
+      if ((f.vx > 0 && f.x > GW + 60) || (f.vx < 0 && f.x < -60)) { f.gone = true; continue; }
     } else if (f.kind === 'spring') {
       f.x = f.bar.x + f.off;
       f.y = f.bar.y;
@@ -793,11 +846,17 @@ function update(dt) {
     }
   }
 
+  // Chancleta voladora: de vez en cuando cruza la pantalla con aviso y anuncio
+  if (meters() >= nextFlipM && !boost) {
+    nextFlipM = meters() + 170 + Math.random() * 160;
+    spawnFlip();
+  }
+
   // Generar y limpiar
   while (topY > camY - 200) genBar();
   const bottom = camY + GH + 250;
   bars = bars.filter((b) => b.y < bottom);
-  foes = foes.filter((f) => !f.taken && (f.bar ? bars.includes(f.bar) : f.y < bottom));
+  foes = foes.filter((f) => !f.taken && !f.gone && (f.bar ? bars.includes(f.bar) : f.y < bottom));
 
   if (sheep.y > camY + GH + 60) { sfx.fall(); gameOver('fall'); }
 }
@@ -1311,6 +1370,52 @@ function drawBat(f) {
   ctx.beginPath(); ctx.moveTo(0.4, 2); ctx.lineTo(1.2, 4.5); ctx.lineTo(2, 2); ctx.closePath(); ctx.fill(); ctx.stroke();
   ctx.restore();
 }
+// Chancleta voladora (vista desde arriba): gira mientras cruza; antes de entrar, aviso en el borde
+function drawFlip(f) {
+  if (f.warn > 0) {
+    if (Math.floor(f.warn * 6) % 2 === 0) return;
+    const x = f.vx > 0 ? 18 : GW - 18;
+    ctx.save();
+    ctx.translate(x, f.y);
+    ctx.fillStyle = '#ff7751'; ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2.5; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(14, 11); ctx.lineTo(-14, 11); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ffffff'; ctx.font = '900 16px Grandstander, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('!', 0, 3);
+    ctx.restore();
+    return;
+  }
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  // Estela
+  ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+  const back = f.vx > 0 ? -1 : 1;
+  for (const dy of [-8, 0, 8]) { ctx.beginPath(); ctx.moveTo(back * 22, dy); ctx.lineTo(back * (34 + Math.abs(dy)), dy); ctx.stroke(); }
+  ctx.rotate(f.t * 9 * Math.sign(f.vx));
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  // Suela con forma de pie
+  const sole = () => {
+    ctx.beginPath();
+    ctx.moveTo(0, -19);
+    ctx.bezierCurveTo(9, -19, 10, -8, 8, -1);
+    ctx.bezierCurveTo(6, 6, 9, 12, 7, 17);
+    ctx.bezierCurveTo(5, 21, -5, 21, -7, 17);
+    ctx.bezierCurveTo(-9, 12, -6, 6, -8, -1);
+    ctx.bezierCurveTo(-10, -8, -9, -19, 0, -19);
+    ctx.closePath();
+  };
+  sole(); ctx.fillStyle = '#10bdc6'; ctx.fill(); ctx.stroke();
+  ctx.save(); sole(); ctx.clip();
+  ctx.fillStyle = '#8fe3e8'; ctx.beginPath(); ctx.ellipse(0, 0, 6, 15, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  // Tira en Y
+  ctx.lineWidth = 4.5; ctx.strokeStyle = OUTLINE; ctx.lineCap = 'round';
+  const strap = () => { ctx.beginPath(); ctx.moveTo(-8, 2); ctx.quadraticCurveTo(-3, -6, 0, -12); ctx.quadraticCurveTo(3, -6, 8, 2); ctx.stroke(); };
+  strap(); ctx.lineWidth = 2.6; ctx.strokeStyle = '#ffc33e'; strap();
+  ctx.fillStyle = '#ff7751'; ctx.strokeStyle = OUTLINE; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.arc(0, -12, 2.4, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
 // Resorte sobre el tablón: no hace daño, lanza a Sheepy 30 m
 function drawSpring(f) {
   const k = f.squish;                         // 1 justo al saltar: se estira y luego vuelve
@@ -1413,7 +1518,7 @@ function draw() {
   }
 }
 
-const FOE_DRAW = { bee: drawBee, bat: drawBat, thorn: drawThorn, spike: drawSpike, spring: drawSpring, heart: drawHeart, shield: drawShieldPrize, hat: drawHatPrize };
+const FOE_DRAW = { bee: drawBee, bat: drawBat, thorn: drawThorn, spike: drawSpike, spring: drawSpring, flip: drawFlip, heart: drawHeart, shield: drawShieldPrize, hat: drawHatPrize };
 
 // ---------- Bucle ----------
 let last = performance.now();

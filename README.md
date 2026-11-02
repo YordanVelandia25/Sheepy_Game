@@ -23,6 +23,10 @@ Al perder aparece **Guardar puntuación**; si no se pulsa, la partida se guarda 
 
 Si no hay conexión, la puntuación queda en cola y se envía al volver internet.
 
+## Tipografías
+- **Grandstander** (títulos, botones, números) y **Jost** (textos), de Google Fonts.
+- Ambas con licencia SIL Open Font License: gratuitas también para uso comercial.
+
 ## Probar en local
 ```bash
 python3 -m http.server 8080

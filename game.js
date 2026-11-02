@@ -40,8 +40,9 @@ const MAX_HEARTS = 3;
 // Progresión de obstáculos y premios (en metros)
 const SAFE_M = 100;        // 0–99 m: sin obstáculos
 const BEES_FROM_M = 201;   // 100–200 m: solo cardos; desde 201 m también abejas
-const HEART_FROM_M = 400;  // primer billete (devuelve una vida)…
-const HEART_EVERY_M = 300; // …y luego uno cada 300 m
+const HEART_FROM_M = 350;  // billete Un Sendauro (devuelve una vida): desde 350 m…
+const HEART_EVERY_M = 200; // …cada 200 m hay una oportunidad…
+const HEART_CHANCE = 0.5;  // …con 50 % de probabilidad de que salga
 const SHIELD_FROM_M = 201; // escudo: 5 s sin recibir daño (poco frecuente)
 const SHIELD_TIME = 5;
 const SPIKES_FROM_M = 300; // pinchos en los tablones (como los cardos)
@@ -206,9 +207,12 @@ function genBar() {
   // Premios sobre el tablón (como mucho uno por tablón y nunca en uno frágil)
   let prize = null;
   if (type !== 'fragile') {
-    if (m >= nextHeartM) { prize = 'heart'; nextHeartM += HEART_EVERY_M; }
-    else if (m >= HAT_FROM_M && m >= nextHatM && Math.random() < 0.03) { prize = 'hat'; nextHatM = m + 180 + Math.random() * 120; }
-    else if (m >= SHIELD_FROM_M && m >= nextShieldM && Math.random() < 0.035) { prize = 'shield'; nextShieldM = m + 110 + Math.random() * 90; }
+    if (m >= nextHeartM) {
+      nextHeartM += HEART_EVERY_M;
+      if (Math.random() < HEART_CHANCE) prize = 'heart';
+    }
+    if (!prize && m >= HAT_FROM_M && m >= nextHatM && Math.random() < 0.03) { prize = 'hat'; nextHatM = m + 180 + Math.random() * 120; }
+    else if (!prize && m >= SHIELD_FROM_M && m >= nextShieldM && Math.random() < 0.035) { prize = 'shield'; nextShieldM = m + 110 + Math.random() * 90; }
   }
   if (prize) foes.push({ kind: prize, bar, off: w / 2, x: 0, y: 0, r: 16, t: Math.random() * 6 });
 

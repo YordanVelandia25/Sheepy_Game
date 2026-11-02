@@ -83,6 +83,10 @@ renderSoundBtn();
 const keys = { left: false, right: false };
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return; // escribiendo el nombre
+  if (!splash.hidden) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); closeSplash(); }
+    return;
+  }
   if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = true;
   if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = true;
   if ((e.key === 'Enter' || e.key === ' ') && mode !== 'play') { e.preventDefault(); start(); }
@@ -1063,6 +1067,18 @@ function loop(now) {
 }
 
 playBtn.addEventListener('click', start);
+
+// ---------- Pantalla de inicio ----------
+const splash = $('splash');
+function closeSplash() {
+  if (splash.classList.contains('leaving')) return;
+  initAudio();
+  if (audio && audio.state === 'suspended') audio.resume();
+  sfx.record();
+  splash.classList.add('leaving');
+  setTimeout(() => { splash.hidden = true; }, 450);
+}
+$('startBtn').addEventListener('click', closeSplash);
 recoverDraft();
 renderRanking();
 if (GLOBAL_ON) { loadWorld(); flushPending(); }

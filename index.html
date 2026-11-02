@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grandstander:wght@800;900&family=Jost:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="style.css?v=20">
+  <link rel="stylesheet" href="style.css?v=21">
 </head>
 <body>
 <!--GAME-START-->
@@ -81,31 +81,15 @@
         <div id="ranking"></div>
       </section>
 <!--GAME-END-->
-      <button id="install" type="button" hidden>Instalar aplicación</button>
     </div>
   </div>
 
-  <script src="config.js?v=20"></script>
-  <script src="game.js?v=20"></script>
+  <script src="config.js?v=21"></script>
+  <script src="game.js?v=21"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
     }
-    let deferredPrompt;
-    const installBtn = document.getElementById('install');
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      deferredPrompt = e;
-      installBtn.hidden = false;
-    });
-    installBtn.addEventListener('click', async () => {
-      if (!deferredPrompt) return;
-      deferredPrompt.prompt();
-      await deferredPrompt.userChoice;
-      deferredPrompt = null;
-      installBtn.hidden = true;
-    });
-    window.addEventListener('appinstalled', () => { installBtn.hidden = true; });
   </script>
 </body>
 </html>

@@ -110,7 +110,7 @@ button {
   cursor: pointer;
   color: var(--ink);
 }
-#play, #install {
+#play {
   font-family: var(--display);
   font-weight: 900;
   font-size: 1.45rem;
@@ -124,8 +124,7 @@ button {
   transition: transform 0.08s, box-shadow 0.08s;
 }
 #play:hover { background: #f03a3f; }
-#play:active, #install:active { transform: translateY(4px); box-shadow: 0 1px 0 var(--line); }
-#install { background: var(--paper); color: var(--ink); font-size: 1rem; padding: 8px 22px; }
+#play:active { transform: translateY(4px); box-shadow: 0 1px 0 var(--line); }
 button:focus-visible { outline: 3px solid #3f8fd0; outline-offset: 3px; }
 .legend { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; font-size: 0.82rem; font-weight: 700; color: var(--muted); }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
@@ -383,7 +382,7 @@ kbd {
   text-wrap: balance;
 }
 #best { color: var(--coral); }
-#play, #install {
+#play {
   background: var(--coral);
   font-size: 1.6rem;
   padding: 10px 52px;
@@ -501,3 +500,7 @@ kbd {
 .me-name { font-weight: 700; display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .you { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 6px; background: var(--purple-soft); color: var(--purple); }
 .me-best { font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+
+/* Al recoger un corazón, el marcador de vidas da un saltito */
+#hearts.gain { animation: hearts-gain 0.5s ease-out; }
+@keyframes hearts-gain { 0% { transform: scale(1); } 35% { transform: scale(1.25); } 100% { transform: scale(1); } }

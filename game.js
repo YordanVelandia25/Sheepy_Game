@@ -37,6 +37,11 @@ const JUMP = 830;        // fuerza del rebote (altura máx. ≈ 230)
 const MOVE = 320;        // velocidad lateral
 const PX_PER_M = 40;     // unidades por metro
 const MAX_HEARTS = 3;
+// Progresión de obstáculos y premios (en metros)
+const SAFE_M = 100;        // 0–99 m: sin obstáculos
+const BEES_FROM_M = 201;   // 100–200 m: solo cardos; desde 201 m también abejas
+const HEART_FROM_M = 400;  // primer corazón para recuperar vidas…
+const HEART_EVERY_M = 300; // …y luego uno cada 300 m
 
 // ---------- Pantalla ----------
 let W, H, dpr, scale, GH, offX;
@@ -84,6 +89,7 @@ const sfx = {
   ouch: () => { tone('square', 420, 120, 0.25, 0.08); },
   fall: () => tone('sine', 600, 90, 0.7, 0.15),
   record: () => { tone('sine', 520, 780, 0.12, 0.1); setTimeout(() => tone('sine', 780, 1040, 0.15, 0.1), 120); },
+  heal: () => { tone('sine', 660, 880, 0.1, 0.1); setTimeout(() => tone('sine', 880, 1320, 0.16, 0.1), 90); },
 };
 function renderSoundBtn() {
   soundBtn.textContent = soundOn ? '🔊' : '🔇';
@@ -127,7 +133,7 @@ function inputDir() {
 
 // ---------- Estado ----------
 let mode = 'menu'; // menu | play | over
-let sheep, bars, foes, parts, camY, topY, maxY, hearts, inv, time, newRecordShown;
+let sheep, bars, foes, parts, camY, topY, maxY, hearts, inv, time, newRecordShown, nextHeartM;
 let best = Number(safeGet('best-m') || 0);
 
 const clouds = Array.from({ length: 5 }, () => ({
@@ -146,6 +152,7 @@ function reset() {
   topY = 0;
   maxY = 0;
   hearts = MAX_HEARTS;
+  nextHeartM = HEART_FROM_M;
   inv = 0;
   time = 0;
   newRecordShown = false;
@@ -168,14 +175,21 @@ function genBar() {
   if (type === 'moving') bar.vx = (40 + 70 * d) * (Math.random() < 0.5 ? -1 : 1);
   bars.push(bar);
 
-  // Obstáculos
-  if (m > 15 && Math.random() < 0.06 + 0.16 * d) {
+  // Obstáculos: van apareciendo poco a poco y cada uno se vuelve más frecuente con la altura
+  const thornD = Math.min(Math.max((m - SAFE_M) / 300, 0), 1);
+  const beeD = Math.min(Math.max((m - BEES_FROM_M) / 400, 0), 1);
+  const heartHere = m >= nextHeartM && type !== 'fragile';
+  if (heartHere) {
+    nextHeartM += HEART_EVERY_M;
+    foes.push({ kind: 'heart', bar, off: w / 2, x: 0, y: 0, r: 12, t: 0 });
+  }
+  if (m >= BEES_FROM_M && Math.random() < 0.06 + 0.16 * beeD) {
     foes.push({
       kind: 'bee', x: 20 + Math.random() * (GW - 40), baseY: y + gap / 2, y: y + gap / 2,
-      vx: (50 + 70 * d) * (Math.random() < 0.5 ? -1 : 1), t: Math.random() * 6, r: 13,
+      vx: (50 + 70 * beeD) * (Math.random() < 0.5 ? -1 : 1), t: Math.random() * 6, r: 13,
     });
   }
-  if (type === 'normal' && m > 30 && w > 70 && Math.random() < 0.08 + 0.14 * d) {
+  if (!heartHere && type === 'normal' && m >= SAFE_M && w > 70 && Math.random() < 0.08 + 0.14 * thornD) {
     foes.push({ kind: 'thorn', bar, off: Math.random() < 0.5 ? 14 : w - 14, x: 0, y: 0, r: 12 });
   }
   topY = y;
@@ -582,6 +596,16 @@ function hurt() {
   if (hearts <= 0) gameOver('hit');
 }
 
+function collectHeart(f) {
+  f.taken = true;
+  if (hearts < MAX_HEARTS) hearts++;
+  puff(f.x, f.y, '#ff6b6b', 10, 150);
+  puff(f.x, f.y, '#ffffff', 6, 110);
+  sfx.heal();
+  updateHud();
+  heartsEl.classList.remove('gain'); void heartsEl.offsetWidth; heartsEl.classList.add('gain');
+}
+
 // ---------- Animación de orejas y brazos ----------
 // Cada pieza sigue un ángulo objetivo con un resorte: llega con retraso y rebota un poco.
 function spring(s, key, target, dt, stiffness, damping) {
@@ -659,6 +683,15 @@ function update(dt) {
       if (f.x < 16) { f.x = 16; f.vx *= -1; }
       if (f.x > GW - 16) { f.x = GW - 16; f.vx *= -1; }
       f.y = f.baseY + Math.sin(f.t * 3) * 12;
+    } else if (f.kind === 'heart') {
+      f.t += dt;
+      f.x = f.bar.x + f.off;
+      f.y = f.bar.y - 34 + Math.sin(f.t * 3) * 4;
+      if (playing && !f.taken) {
+        const dx = f.x - sheep.x, dy = f.y - (sheep.y - SHEEP_H * 0.5);
+        if (dx * dx + dy * dy < (f.r + SHEEP_W * 0.45) ** 2) collectHeart(f);
+      }
+      continue;
     } else {
       f.x = f.bar.x + f.off;
       f.y = f.bar.y - 10;
@@ -691,7 +724,7 @@ function update(dt) {
   while (topY > camY - 200) genBar();
   const bottom = camY + GH + 250;
   bars = bars.filter((b) => b.y < bottom);
-  foes = foes.filter((f) => (f.kind === 'thorn' ? bars.includes(f.bar) : f.y < bottom));
+  foes = foes.filter((f) => !f.taken && (f.bar ? bars.includes(f.bar) : f.y < bottom));
 
   if (sheep.y > camY + GH + 60) { sfx.fall(); gameOver('fall'); }
 }
@@ -1060,6 +1093,33 @@ function drawBee(f) {
   ctx.restore();
 }
 
+// Corazón para recuperar una vida: rojo con brillo, late y tiene un halo
+function drawHeart(f) {
+  const beat = 1 + Math.max(0, Math.sin(f.t * 6)) * 0.12;
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  ctx.fillStyle = 'rgba(255, 220, 120, 0.35)';
+  ctx.beginPath(); ctx.arc(0, 1, 19 + Math.sin(f.t * 3) * 2, 0, Math.PI * 2); ctx.fill();
+  ctx.scale(beat, beat);
+  const heartPath = () => {
+    ctx.beginPath();
+    ctx.moveTo(0, 12);
+    ctx.bezierCurveTo(-4, 8, -14, 2, -14, -5);
+    ctx.bezierCurveTo(-14, -11, -9, -14, -6, -14);
+    ctx.bezierCurveTo(-3, -14, -1, -12, 0, -9);
+    ctx.bezierCurveTo(1, -12, 3, -14, 6, -14);
+    ctx.bezierCurveTo(9, -14, 14, -11, 14, -5);
+    ctx.bezierCurveTo(14, 2, 4, 8, 0, 12);
+    ctx.closePath();
+  };
+  heartPath();
+  ctx.fillStyle = '#e3262b'; ctx.fill();
+  ctx.lineWidth = 2.5; ctx.strokeStyle = OUTLINE; ctx.lineJoin = 'round'; ctx.stroke();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+  ctx.beginPath(); ctx.ellipse(-7, -7, 3.2, 2, -0.6, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
 function drawThorn(f) {
   ctx.save();
   ctx.translate(f.x, f.y);
@@ -1100,7 +1160,7 @@ function draw() {
 
   ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * offX, -dpr * camY * scale);
   for (const b of bars) drawBar(b);
-  for (const f of foes) (f.kind === 'bee' ? drawBee : drawThorn)(f);
+  for (const f of foes) (f.kind === 'bee' ? drawBee : f.kind === 'heart' ? drawHeart : drawThorn)(f);
   for (const p of parts) {
     ctx.globalAlpha = Math.max(p.life / p.max, 0);
     ctx.fillStyle = p.color;

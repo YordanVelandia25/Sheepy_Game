@@ -115,7 +115,7 @@ const stars = Array.from({ length: 70 }, () => ({ x: Math.random(), y: Math.rand
 function meters() { return Math.max(0, Math.floor(-maxY / PX_PER_M)); }
 
 function reset() {
-  sheep = { x: GW / 2, y: 0, vx: 0, vy: 0, face: 1, squash: 0 };
+  sheep = { x: GW / 2, y: 0, vx: 0, vy: 0, face: 1, squash: 0, ear: 0, earV: 0, arm: 0, armV: 0 };
   bars = [{ x: -2000, y: 0, w: GW + 4000, ground: true }];
   foes = [];
   parts = [];
@@ -513,6 +513,27 @@ function hurt() {
   if (hearts <= 0) gameOver('hit');
 }
 
+// ---------- Animación de orejas y brazos ----------
+// Cada pieza sigue un ángulo objetivo con un resorte: llega con retraso y rebota un poco.
+function spring(s, key, target, dt, stiffness, damping) {
+  const v = key + 'V';
+  s[v] += ((target - s[key]) * stiffness - s[v] * damping) * dt;
+  s[key] += s[v] * dt;
+}
+function animateLimbs(s, dt) {
+  const t = Math.min(Math.max(s.vy / JUMP, -1), 1); // -1 subiendo rápido … +1 cayendo rápido
+  // Orejas: al subir quedan hacia abajo por la inercia; al caer se levantan
+  spring(s, 'ear', t * 0.55, dt, 140, 9);
+  // Brazos: al subir se abren hacia arriba; al caer aletean para mantener el equilibrio
+  const flap = t > 0.15 ? Math.sin(time * 22) * 0.35 * t : 0;
+  const armTarget = t < 0 ? -t * 1.1 : 0.55 * t + flap;
+  spring(s, 'arm', armTarget, dt, 160, 12);
+}
+function bumpLimbs(s) { // golpe al aterrizar: orejas y brazos rebotan hacia abajo
+  s.earV -= 9;
+  s.armV -= 6;
+}
+
 // ---------- Actualización ----------
 function update(dt) {
   time += dt;
@@ -529,6 +550,7 @@ function update(dt) {
   sheep.vy += GRAVITY * dt;
   sheep.y += sheep.vy * dt;
   sheep.squash = Math.max(0, sheep.squash - dt * 5);
+  animateLimbs(sheep, dt);
   if (inv > 0) inv -= dt;
 
   for (const b of bars) {
@@ -548,6 +570,7 @@ function update(dt) {
         sheep.y = b.y;
         sheep.vy = -JUMP;
         sheep.squash = 1;
+        bumpLimbs(sheep);
         puff(sheep.x, b.y, '#ffffff', 5, 90);
         if (b.type === 'fragile') {
           b.broken = true;
@@ -619,6 +642,17 @@ const SPRITES = {
   body: 'sprites/oveja-cuerpo.png',
   footL: 'sprites/oveja-pie-izq.png',
   footR: 'sprites/oveja-pie-der.png',
+  earL: 'sprites/oveja-oreja-izq.png',
+  earR: 'sprites/oveja-oreja-der.png',
+  armL: 'sprites/oveja-brazo-izq.png',
+  armR: 'sprites/oveja-brazo-der.png',
+};
+// Piezas móviles: esquina superior izquierda (x, y) y punto de giro (px, py), en píxeles del sprite
+const PARTS = {
+  earL: { x: 0.4, y: 77.6, px: 51.2, py: 96 },
+  earR: { x: 152, y: 76.8, px: 160, py: 96 },
+  armL: { x: 0.8, y: 234.8, px: 15.2, py: 244.8 },
+  armR: { x: 183.2, y: 234.8, px: 197.6, py: 244.8 },
 };
 const img = {};
 for (const [k, src] of Object.entries(SPRITES)) { img[k] = new Image(); img[k].src = src; }
@@ -860,6 +894,17 @@ function drawBar(b) {
   ctx.restore();
 }
 
+// Dibuja una pieza girada sobre su punto de unión
+function drawPart(name, lx, top, angle) {
+  const P = PARTS[name], im = img[name];
+  if (!im.complete || !im.naturalWidth) return;
+  ctx.save();
+  ctx.translate(lx + P.px * SPR_K, top + P.py * SPR_K);
+  ctx.rotate(angle);
+  ctx.drawImage(im, (P.x - P.px) * SPR_K, (P.y - P.py) * SPR_K, im.naturalWidth * SPR_K, im.naturalHeight * SPR_K);
+  ctx.restore();
+}
+
 function drawSheep(s) {
   if (inv > 0 && Math.floor(inv * 12) % 2 === 0) return;
   if (!img.body.complete || !img.body.naturalWidth) return;
@@ -877,16 +922,23 @@ function drawSheep(s) {
     ctx.beginPath(); ctx.ellipse(0, 0, SHEEP_W * 0.42, 3.5, 0, 0, Math.PI * 2); ctx.fill();
   }
 
+  const lx = -SHEEP_W / 2;
+  const top = -SHEEP_H;
+
+  // Brazos y orejas van detrás del cuerpo: su base queda tapada por la lana
+  drawPart('armL', lx, top, s.arm);
+  drawPart('armR', lx, top, -s.arm);
+  drawPart('earL', lx, top, s.ear);
+  drawPart('earR', lx, top, -s.ear);
+
   // Tenis: se encogen al subir, cuelgan al caer y se balancean al moverse
   const falling = Math.min(Math.max(s.vy / JUMP, 0), 1);
   const tuck = -5 * rising + 3 * falling;
   const swing = Math.abs(s.vx) > 40 ? Math.sin(time * 20) * 2.5 : 0;
-  const lx = -SHEEP_W / 2;
   ctx.drawImage(img.footL, lx, -SHEEP_H + LEGS_TOP + tuck + swing, SHEEP_W, img.footL.naturalHeight * SPR_K);
   ctx.drawImage(img.footR, lx, -SHEEP_H + LEGS_TOP + tuck - swing, SHEEP_W, img.footR.naturalHeight * SPR_K);
 
   // Cuerpo
-  const top = -SHEEP_H;
   ctx.drawImage(img.body, lx, top, SHEEP_W, img.body.naturalHeight * SPR_K);
 
   // Parpadeo (o ojos cerrados al recibir un golpe)

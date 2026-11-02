@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grandstander:wght@800;900&family=Jost:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="style.css?v=26">
+  <link rel="stylesheet" href="style.css?v=27">
 </head>
 <body>
 <!--GAME-START-->
@@ -62,8 +62,8 @@
             <p>Toca el lado izquierdo o derecho de la pantalla para dirigirla. Si juegas en computador, utiliza las flechas <kbd>←</kbd> y <kbd>→</kbd> del teclado.</p>
           </li>
           <li>
-            <span class="step-icon heart" aria-hidden="true">♥</span>
-            <p>¡Cuidado con los enemigos y obstáculos del camino! Cada vez que choques con uno, perderás un corazón. Cuanto más alto subas, más aparecerán.</p>
+            <span class="step-icon bill" aria-hidden="true"><img src="sprites/billete.webp" alt="" width="200" height="100"></span>
+            <p>¡Cuidado con los enemigos y obstáculos del camino! Cada vez que choques con uno, perderás un sendauro, que son tus vidas. Cuanto más alto subas, más aparecerán.</p>
           </li>
           <li>
             <span class="step-icon star" aria-hidden="true">★</span>
@@ -90,8 +90,8 @@
     </div>
   </div>
 
-  <script src="config.js?v=26"></script>
-  <script src="game.js?v=26"></script>
+  <script src="config.js?v=27"></script>
+  <script src="game.js?v=27"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));

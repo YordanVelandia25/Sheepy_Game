@@ -235,13 +235,17 @@ function genBar() {
 function updateHud() {
   metersEl.textContent = `${meters()} m`;
   bestHudEl.textContent = best ? `Récord ${best} m` : '';
-  heartsEl.innerHTML = '';
-  for (let i = 0; i < MAX_HEARTS; i++) {
-    const s = document.createElement('span');
-    s.textContent = '♥';
-    if (i >= hearts) s.className = 'lost';
-    heartsEl.appendChild(s);
+  // Vidas: un billete "Un Sendauro" por vida; las perdidas se ven grises
+  if (heartsEl.children.length !== MAX_HEARTS) {
+    heartsEl.innerHTML = '';
+    for (let i = 0; i < MAX_HEARTS; i++) {
+      const im = document.createElement('img');
+      im.src = 'sprites/billete.webp'; im.alt = ''; im.width = 200; im.height = 100;
+      heartsEl.appendChild(im);
+    }
   }
+  [...heartsEl.children].forEach((im, i) => im.classList.toggle('lost', i >= hearts));
+  heartsEl.setAttribute('aria-label', `Vidas: ${hearts} de ${MAX_HEARTS}`);
 }
 
 function puff(x, y, color, n = 6, spd = 120) {

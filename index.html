@@ -47,17 +47,26 @@
 
   <div id="overlay">
     <div class="card">
-      <h1 id="title">Sheepy Jump</h1>
-      <p id="message">¡Sheepy salta de tablón en tablón y sube lo más alto que puedas!</p>
-      <div id="intro">
-        <p class="how">La oveja salta sola. Toca el lado izquierdo o derecho de la pantalla, o usa las flechas ← →, para moverla.</p>
-        <div class="legend">
-          <span><i style="background:#c07a3e"></i>Tablón</span>
-          <span><i style="background:#3f8fd0"></i>Se mueve</span>
-          <span><i style="background:#dcc08e"></i>Se rompe</span>
-        </div>
-        <p class="how">Cuidado con las abejas y los cardos: cada choque quita un corazón.</p>
+      <h1 id="title">¿Cómo jugar?</h1>
+      <p id="message">¡Salta de tablón en tablón y llega tan alto como puedas!</p>
+      <div id="intro" class="panel">
+        <ol class="steps">
+          <li>
+            <span class="step-icon" aria-hidden="true"><img src="icons/icon-192.png" alt="" width="44" height="44"></span>
+            <p>¡Sheepy salta solita! Tú solo tienes que ayudarla a moverse.</p>
+          </li>
+          <li>
+            <span class="step-icon keys" aria-hidden="true"><kbd>←</kbd><kbd>→</kbd></span>
+            <p>Toca el lado izquierdo o derecho de la pantalla para dirigirla. Si juegas en computador, utiliza las flechas <kbd>←</kbd> y <kbd>→</kbd> del teclado.</p>
+          </li>
+          <li>
+            <span class="step-icon heart" aria-hidden="true">♥</span>
+            <p>¡Ten cuidado con las abejas y los cardos! Cada vez que choques con uno, perderás un corazón.</p>
+          </li>
+        </ol>
+        <p class="cta">¡Prepárate para saltar, esquivar y llegar a lo más alto!</p>
       </div>
+      <div class="panel player-panel">
       <p id="best"></p>
       <div class="field">
         <label for="player">Nombre del jugador</label>
@@ -66,14 +75,9 @@
       </div>
       <button id="save" type="button" hidden>Guardar puntuación</button>
       <button id="play" type="button">Jugar</button>
-      <section class="ranking" aria-labelledby="rankingTitle">
-        <div class="ranking-head">
-          <h2 id="rankingTitle">Ranking</h2>
-          <div class="tabs" role="tablist" aria-label="Tipo de ranking">
-            <button id="tabWorld" type="button" role="tab" aria-selected="true" hidden>Mundial</button>
-            <button id="tabLocal" type="button" role="tab" aria-selected="false" hidden>Este dispositivo</button>
-          </div>
-        </div>
+      </div>
+      <section class="panel ranking" aria-labelledby="rankingTitle">
+        <h2 id="rankingTitle">Ranking mundial</h2>
         <ol id="ranking"></ol>
       </section>
 <!--GAME-END-->

@@ -195,8 +195,6 @@ const savedEl = $('saved');
 const introEl = $('intro');
 const saveBtn = $('save');
 const playerLabel = document.querySelector('label[for="player"]');
-const tabWorld = $('tabWorld');
-const tabLocal = $('tabLocal');
 
 const CFG = window.OVEJA_CONFIG || {};
 const GLOBAL_ON = !!(CFG.supabaseUrl && CFG.supabaseKey);
@@ -205,7 +203,6 @@ let ranking = loadRanking();        // ranking del dispositivo
 let worldTop = [];                  // top 10 mundial
 let worldState = 'idle';            // idle | loading | ok | error
 let worldError = '';                // mensaje de Supabase si falló la carga
-let rankTab = GLOBAL_ON ? (safeGet('rank-tab') || 'world') : 'local';
 let current = null;                 // última partida: { m, saved, name, local, world }
 best = Math.max(best, ranking[0]?.m || 0);
 playerInput.value = safeGet('player-name') || '';
@@ -387,13 +384,10 @@ function gapRow() {
 }
 
 function renderRanking() {
-  tabWorld.parentElement.hidden = tabWorld.hidden = tabLocal.hidden = !GLOBAL_ON;
-  tabWorld.setAttribute('aria-selected', rankTab === 'world');
-  tabLocal.setAttribute('aria-selected', rankTab === 'local');
   rankingEl.replaceChildren();
   const myKey = current?.saved ? nameKey(current.name) : null;
-
-  if (rankTab === 'world') {
+  if (!GLOBAL_ON) { rankingEl.appendChild(note('El ranking mundial está disponible en la versión publicada del juego.')); return; }
+  {
     if (worldState === 'loading' || worldState === 'idle') { rankingEl.appendChild(note('Cargando el ranking mundial…')); return; }
     if (worldState === 'error') {
       rankingEl.appendChild(note(worldError
@@ -407,23 +401,8 @@ function renderRanking() {
     if (myKey && w?.status === 'sent' && !worldTop.some((r) => nameKey(r.name) === myKey)) {
       rankingEl.append(gapRow(), rankRow(current.name, w.best, w.rank, true));
     }
-    return;
   }
-
-  if (!ranking.length) { rankingEl.appendChild(note('Todavía no hay puntuaciones. ¡Juega una partida para estrenar el ranking!')); return; }
-  ranking.slice(0, RANK_SHOW).forEach((e, i) => rankingEl.appendChild(rankRow(e.name, e.m, i + 1, nameKey(e.name) === myKey)));
-  const idx = myKey ? ranking.findIndex((e) => nameKey(e.name) === myKey) : -1;
-  if (idx >= RANK_SHOW) rankingEl.append(gapRow(), rankRow(ranking[idx].name, ranking[idx].m, idx + 1, true));
 }
-
-function setTab(tab) {
-  rankTab = tab;
-  safeSet('rank-tab', tab);
-  renderRanking();
-  if (tab === 'world' && worldState !== 'loading') loadWorld();
-}
-tabWorld.addEventListener('click', () => setTab('world'));
-tabLocal.addEventListener('click', () => setTab('local'));
 
 function showSaved() {
   if (!current) return;
@@ -439,14 +418,12 @@ function showSaved() {
       : `${name} ya tenía ${w.best} m, así que se mantiene esa marca (puesto ${w.rank} en el mundo).`;
     return;
   }
-  const localBest = current.local?.m;
-  const localText = current.localImproved
-    ? `Guardado como ${name}.`
-    : `${name} ya tenía ${localBest} m en este dispositivo, así que se mantiene esa marca.`;
-  if (GLOBAL_ON && w.status === 'offline') savedEl.textContent = `${localText} Sin conexión: se enviará al ranking mundial más tarde.`;
-  else if (GLOBAL_ON && w.status === 'error') savedEl.textContent = `${localText} No se pudo guardar en el ranking mundial (error ${w.error}). Se volverá a intentar.`;
-  else if (GLOBAL_ON) savedEl.textContent = `${localText} Enviando al ranking mundial…`;
-  else savedEl.textContent = localText;
+  if (GLOBAL_ON && w.status === 'offline') savedEl.textContent = `Sin conexión: la puntuación de ${name} se enviará al ranking mundial cuando vuelva internet.`;
+  else if (GLOBAL_ON && w.status === 'error') savedEl.textContent = `No se pudo guardar en el ranking mundial (error ${w.error}). Se volverá a intentar.`;
+  else if (GLOBAL_ON) savedEl.textContent = `Guardando a ${name} en el ranking mundial…`;
+  else savedEl.textContent = current.localImproved
+    ? `¡Nuevo récord de ${name}!`
+    : `${name} ya tenía ${current.local?.m} m, así que se mantiene esa marca.`;
 }
 
 playerInput.addEventListener('input', () => {

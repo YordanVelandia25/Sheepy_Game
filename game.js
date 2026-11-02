@@ -40,7 +40,7 @@ const MAX_HEARTS = 3;
 // Progresión de obstáculos y premios (en metros)
 const SAFE_M = 100;        // 0–99 m: sin obstáculos
 const BEES_FROM_M = 201;   // 100–200 m: solo cardos; desde 201 m también abejas
-const HEART_FROM_M = 400;  // primer corazón para recuperar vidas…
+const HEART_FROM_M = 400;  // primer billete (devuelve una vida)…
 const HEART_EVERY_M = 300; // …y luego uno cada 300 m
 
 // ---------- Pantalla ----------
@@ -181,7 +181,7 @@ function genBar() {
   const heartHere = m >= nextHeartM && type !== 'fragile';
   if (heartHere) {
     nextHeartM += HEART_EVERY_M;
-    foes.push({ kind: 'heart', bar, off: w / 2, x: 0, y: 0, r: 12, t: 0 });
+    foes.push({ kind: 'heart', bar, off: w / 2, x: 0, y: 0, r: 16, t: 0 });
   }
   if (m >= BEES_FROM_M && Math.random() < 0.06 + 0.16 * beeD) {
     foes.push({
@@ -748,6 +748,7 @@ const SPRITES = {
   earR: 'sprites/oveja-oreja-der.png',
   armL: 'sprites/oveja-brazo-izq.png',
   armR: 'sprites/oveja-brazo-der.png',
+  bill: 'sprites/billete.webp',
 };
 // Piezas móviles: esquina superior izquierda (x, y) y punto de giro (px, py), en píxeles del sprite
 const PARTS = {
@@ -1093,30 +1094,22 @@ function drawBee(f) {
   ctx.restore();
 }
 
-// Corazón para recuperar una vida: rojo con brillo, late y tiene un halo
+// Billete "Un Sendauro" que devuelve una vida: flota, se balancea y tiene un brillo detrás
+const BILL_W = 58, BILL_H = 29;
 function drawHeart(f) {
-  const beat = 1 + Math.max(0, Math.sin(f.t * 6)) * 0.12;
+  const beat = 1 + Math.max(0, Math.sin(f.t * 6)) * 0.08;
   ctx.save();
   ctx.translate(f.x, f.y);
-  ctx.fillStyle = 'rgba(255, 220, 120, 0.35)';
-  ctx.beginPath(); ctx.arc(0, 1, 19 + Math.sin(f.t * 3) * 2, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(255, 220, 120, 0.4)';
+  ctx.beginPath(); ctx.ellipse(0, 0, BILL_W * 0.62 + Math.sin(f.t * 3) * 2, BILL_H * 0.85, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.rotate(Math.sin(f.t * 2.4) * 0.12);
   ctx.scale(beat, beat);
-  const heartPath = () => {
-    ctx.beginPath();
-    ctx.moveTo(0, 12);
-    ctx.bezierCurveTo(-4, 8, -14, 2, -14, -5);
-    ctx.bezierCurveTo(-14, -11, -9, -14, -6, -14);
-    ctx.bezierCurveTo(-3, -14, -1, -12, 0, -9);
-    ctx.bezierCurveTo(1, -12, 3, -14, 6, -14);
-    ctx.bezierCurveTo(9, -14, 14, -11, 14, -5);
-    ctx.bezierCurveTo(14, 2, 4, 8, 0, 12);
-    ctx.closePath();
-  };
-  heartPath();
-  ctx.fillStyle = '#e3262b'; ctx.fill();
-  ctx.lineWidth = 2.5; ctx.strokeStyle = OUTLINE; ctx.lineJoin = 'round'; ctx.stroke();
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
-  ctx.beginPath(); ctx.ellipse(-7, -7, 3.2, 2, -0.6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+  ctx.fillRect(-BILL_W / 2 + 2, -BILL_H / 2 + 3, BILL_W, BILL_H);
+  if (img.bill.complete && img.bill.naturalWidth) ctx.drawImage(img.bill, -BILL_W / 2, -BILL_H / 2, BILL_W, BILL_H);
+  else { ctx.fillStyle = '#5bc8f5'; ctx.fillRect(-BILL_W / 2, -BILL_H / 2, BILL_W, BILL_H); }
+  ctx.lineWidth = 1.5; ctx.strokeStyle = OUTLINE;
+  ctx.strokeRect(-BILL_W / 2, -BILL_H / 2, BILL_W, BILL_H);
   ctx.restore();
 }
 

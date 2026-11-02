@@ -115,8 +115,7 @@ const stars = Array.from({ length: 70 }, () => ({ x: Math.random(), y: Math.rand
 function meters() { return Math.max(0, Math.floor(-maxY / PX_PER_M)); }
 
 function reset() {
-  sheep = { x: GW / 2, y: 0, vx: 0, vy: 0, face: 1, squash: 0, ear: 0, earV: 0, arm: 0, armV: 0,
-    lookX: 0, lookXV: 0, lookY: 0, lookYV: 0, brow: 0, browV: 0, mouth: 0, mouthV: 0, mouthO: 0, mouthOV: 0 };
+  sheep = { x: GW / 2, y: 0, vx: 0, vy: 0, face: 1, squash: 0, ear: 0, earV: 0, arm: 0, armV: 0 };
   bars = [{ x: -2000, y: 0, w: GW + 4000, ground: true }];
   foes = [];
   parts = [];
@@ -526,23 +525,13 @@ function animateLimbs(s, dt) {
   const up = Math.max(-t, 0), down = Math.max(t, 0);
   // Orejas: al subir caen por la inercia; al caer se levantan con el aire
   spring(s, 'ear', t < 0 ? t * 0.6 : t * 1.05, dt, 170, 7);
-  // Brazos: al subir se lanzan hacia arriba; al caer se abren y aletean para equilibrarse
-  const flap = down > 0.1 ? Math.sin(time * 20) * 0.55 * down : 0;
-  spring(s, 'arm', up * 1.7 + down * 0.8 + flap, dt, 180, 10);
-
-  // Cara
-  const hurt = inv > 1.0;
-  spring(s, 'lookX', Math.min(Math.max(s.vx / MOVE, -1), 1), dt, 120, 14);  // mira hacia donde va
-  spring(s, 'lookY', t, dt, 120, 14);                                         // arriba al subir, abajo al caer
-  spring(s, 'brow', hurt ? 1 : Math.max(up * 0.7, down), dt, 150, 12);         // cejas arriba en el aire
-  spring(s, 'mouth', hurt ? 0.6 : up * 1.0 + down * 0.5, dt, 150, 11);        // boca abierta de emoción
-  spring(s, 'mouthO', hurt ? 1 : Math.max(0, (t - 0.35) / 0.65), dt, 120, 12); // "¡oh!" al caer rápido
+  // Brazos (enteros, desde el hombro): al subir se levantan; al caer se abren y aletean
+  const flap = down > 0.1 ? Math.sin(time * 18) * 0.35 * down : 0;
+  spring(s, 'arm', up * 1.25 + down * 0.55 + flap, dt, 150, 10);
 }
-function bumpLimbs(s) { // golpe al aterrizar: orejas, brazos y boca rebotan
+function bumpLimbs(s) { // golpe al aterrizar: orejas y brazos rebotan
   s.earV -= 16;
-  s.armV -= 10;
-  s.mouthV -= 6;
-  s.browV -= 5;
+  s.armV -= 8;
 }
 
 // ---------- Actualización ----------
@@ -662,8 +651,8 @@ const SPRITES = {
 const PARTS = {
   earL: { x: 0.4, y: 77.6, px: 51.2, py: 96 },
   earR: { x: 152, y: 76.8, px: 160, py: 96 },
-  armL: { x: 0.8, y: 234.8, px: 15.2, py: 244.8 },
-  armR: { x: 183.2, y: 234.8, px: 197.6, py: 244.8 },
+  armL: { x: 0, y: 174.4, px: 32, py: 182 },       // brazo entero, gira en el hombro
+  armR: { x: 170.8, y: 174.4, px: 180.8, py: 182 },
 };
 const img = {};
 for (const [k, src] of Object.entries(SPRITES)) { img[k] = new Image(); img[k].src = src; }
@@ -672,6 +661,7 @@ const SPR_W = 213;               // ancho del sprite en píxeles
 const SPR_K = SHEEP_W / SPR_W;   // píxeles del sprite → unidades del mundo
 const SHEEP_H = 363 * SPR_K;     // alto total (≈ 85)
 const LEGS_TOP = 283 * SPR_K;    // dónde empieza la capa de los tenis
+const EYES = [[82, 90.4], [131.2, 90.4]]; // centros de los ojos en el sprite
 const FACE = '#faf7ee';
 
 function hexRgb(h) { return h.match(/\w\w/g).map((x) => parseInt(x, 16)); }
@@ -952,102 +942,18 @@ function drawSheep(s) {
   // Cuerpo
   ctx.drawImage(img.body, lx, top, SHEEP_W, img.body.naturalHeight * SPR_K);
 
-  // Cara (en píxeles de la ilustración original)
-  ctx.save();
-  ctx.translate(lx, top);
-  ctx.scale(SPR_K * 0.4, SPR_K * 0.4);
-  drawFace(s);
-  ctx.restore();
-  ctx.restore();
-}
-
-// ---------- Cara animada ----------
-// Coordenadas en píxeles de la ilustración original (532 × 908)
-const EYE = [{ x: 202.5, y: 228 }, { x: 329, y: 227 }];
-const BROWS = [
-  { a: [182, 183], c: [196, 166], b: [217, 168], dir: -1 },
-  { a: [357, 186], c: [340, 166], b: [316, 168], dir: 1 },
-];
-function drawFace(s) {
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
+  // Parpadeo (o ojos cerrados al recibir un golpe)
   const blink = Math.sin(time * 1.3) > 0.985 || inv > 1.1;
-
-  // Ojos: el contorno es de la ilustración; aquí se dibujan el blanco y la pupila
-  for (const e of EYE) {
-    if (blink) {
+  if (blink) {
+    for (const [ex, ey] of EYES) {
+      const x = lx + ex * SPR_K, y = top + ey * SPR_K;
       ctx.fillStyle = FACE;
-      ctx.beginPath(); ctx.ellipse(e.x, e.y, 22, 30, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = OUTLINE; ctx.lineWidth = 5;
-      ctx.beginPath(); ctx.arc(e.x, e.y - 10, 18, 0.2 * Math.PI, 0.8 * Math.PI); ctx.stroke();
-      continue;
+      ctx.beginPath(); ctx.ellipse(x, y, 9.4 * SPR_K, 12 * SPR_K, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = OUTLINE; ctx.lineWidth = 0.9; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(x, y - 3 * SPR_K, 7 * SPR_K, 0.25 * Math.PI, 0.75 * Math.PI); ctx.stroke();
     }
-    ctx.save();
-    ctx.beginPath(); ctx.ellipse(e.x, e.y, 16.8, 25, 0, 0, Math.PI * 2); ctx.clip();
-    const g = ctx.createLinearGradient(0, e.y - 25, 0, e.y + 25);
-    g.addColorStop(0, '#ffffff'); g.addColorStop(1, '#e6e5e1');
-    ctx.fillStyle = g; ctx.fillRect(e.x - 18, e.y - 26, 36, 52);
-    const px = e.x + s.lookX * 5, py = e.y + 1 + s.lookY * 7;
-    const pg = ctx.createLinearGradient(0, py - 17, 0, py + 17);
-    pg.addColorStop(0, '#000000'); pg.addColorStop(0.55, '#0c0c0c'); pg.addColorStop(1, '#5a5a57');
-    ctx.fillStyle = pg;
-    ctx.beginPath(); ctx.ellipse(px, py, 13, 17, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath(); ctx.arc(px + 3.5, py - 8, 4.6, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.beginPath(); ctx.arc(px - 5, py + 8, 2, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
   }
-
-  // Cejas: suben y se arquean con la sorpresa
-  ctx.strokeStyle = OUTLINE;
-  for (const b of BROWS) {
-    const lift = s.brow * 13, tilt = s.brow * 5;
-    ctx.lineWidth = 6.5;
-    ctx.beginPath();
-    ctx.moveTo(b.a[0], b.a[1] - lift + tilt * 0.4);
-    ctx.quadraticCurveTo(b.c[0], b.c[1] - lift - tilt, b.b[0], b.b[1] - lift + tilt * 0.6);
-    ctx.stroke();
-  }
-
-  // Boca: sonrisa con la boca abierta; se abre más al saltar y hace "¡oh!" al caer rápido
-  const O = Math.min(Math.max(s.mouthO, 0), 1);
-  const open = Math.min(Math.max(s.mouth, -0.3), 1.3);
-  const cx = 270;
-  const halfW = (34 + 12 * open) * (1 - 0.5 * O);
-  const topY = 341 + 5 * O;
-  const depth = Math.max(8, 32 + 14 * open);
-  const smileEndY = 316 + 18 * O;          // al decir "¡oh!" la sonrisa se aplana
-  const smileDip = 26 * (1 - O);
-
-  // Mejillas (líneas de la sonrisa) y surco bajo la nariz
-  ctx.lineWidth = 5;
-  ctx.beginPath();
-  ctx.moveTo(186, smileEndY);
-  ctx.quadraticCurveTo(214, topY + smileDip * 0.2, cx - halfW, topY);
-  ctx.moveTo(354, smileEndY);
-  ctx.quadraticCurveTo(326, topY + smileDip * 0.2, cx + halfW, topY);
-  ctx.moveTo(181, smileEndY - 7 + 4 * O); ctx.lineTo(188, smileEndY + 1);   // hoyuelos
-  ctx.moveTo(359, smileEndY - 7 + 4 * O); ctx.lineTo(352, smileEndY + 1);
-  ctx.moveTo(cx, 313); ctx.lineTo(cx, topY - 2 * (1 - O));
-  ctx.stroke();
-
-  // Boca
-  ctx.beginPath();
-  ctx.moveTo(cx - halfW, topY);
-  ctx.bezierCurveTo(cx - halfW * 0.5, topY - depth * 0.5 * O + 4 * (1 - O), cx + halfW * 0.5, topY - depth * 0.5 * O + 4 * (1 - O), cx + halfW, topY);
-  const k = 0.55 + 0.45 * O;
-  ctx.bezierCurveTo(cx + halfW * k, topY + depth * 1.33, cx - halfW * k, topY + depth * 1.33, cx - halfW, topY);
-  ctx.closePath();
-  ctx.fillStyle = '#1a1113';
-  ctx.fill();
-  ctx.save();
-  ctx.clip();
-  ctx.fillStyle = '#ee727d';
-  ctx.beginPath(); ctx.ellipse(cx, topY + depth + 2, halfW * 0.62, 11 + 3 * open, 0, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
-  ctx.lineWidth = 5;
-  ctx.stroke();
 }
 
 function drawBee(f) {

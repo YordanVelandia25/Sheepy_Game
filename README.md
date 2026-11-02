@@ -46,4 +46,4 @@ Abre http://localhost:8080 en Chrome.
 | `sw.js` | Caché para jugar sin conexión |
 | `icons/` | Iconos de la app |
 
-**Al publicar cambios**, sube la versión de la caché en `sw.js` (por ejemplo `oveja-v5` → `oveja-v6`) para que quien tenga la app instalada reciba la actualización.
+**Al publicar cambios**, sube la versión en `index.html` (`?v=18` → `?v=19` en `style.css`, `config.js` y `game.js`) y la de la caché en `sw.js`, para que nadie mezcle archivos viejos y nuevos.

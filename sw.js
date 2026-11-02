@@ -1,6 +1,6 @@
 // Service worker: guarda los archivos en caché para que el juego funcione sin conexión.
 // Usa primero la red, así que los cambios publicados llegan sin esperar. Sube la versión si cambias la lista de archivos.
-const CACHE = 'sheepy-v17';
+const CACHE = 'sheepy-v18';
 const ASSETS = [
   './',
   'index.html',
@@ -43,7 +43,8 @@ self.addEventListener('fetch', (event) => {
   if (new URL(event.request.url).origin !== self.location.origin) return;
   // Primero la red (para recibir siempre la última versión); sin conexión, la copia guardada
   event.respondWith(
-    fetch(event.request)
+    // "no-cache": siempre pregunta al servidor si hay versión nueva (evita mezclar archivos viejos y nuevos)
+    fetch(event.request.url, { cache: 'no-cache', credentials: 'same-origin' })
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();

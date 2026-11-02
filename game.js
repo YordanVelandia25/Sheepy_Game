@@ -2,6 +2,21 @@
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const $ = (id) => document.getElementById(id);
+
+// ---------- Pantalla de inicio ----------
+// Va al principio para que el botón Iniciar funcione aunque algo más falle.
+const splash = $('splash');
+function closeSplash() {
+  if (splash.classList.contains('leaving')) return;
+  try {
+    initAudio();
+    if (audio && audio.state === 'suspended') audio.resume();
+    sfx.record();
+  } catch (err) { console.warn('Sonido no disponible:', err); }
+  splash.classList.add('leaving');
+  setTimeout(() => { splash.hidden = true; }, 450);
+}
+$('startBtn').addEventListener('click', closeSplash);
 const metersEl = $('meters');
 const bestHudEl = $('bestHud');
 const heartsEl = $('hearts');
@@ -1045,17 +1060,6 @@ function loop(now) {
 
 playBtn.addEventListener('click', start);
 
-// ---------- Pantalla de inicio ----------
-const splash = $('splash');
-function closeSplash() {
-  if (splash.classList.contains('leaving')) return;
-  initAudio();
-  if (audio && audio.state === 'suspended') audio.resume();
-  sfx.record();
-  splash.classList.add('leaving');
-  setTimeout(() => { splash.hidden = true; }, 450);
-}
-$('startBtn').addEventListener('click', closeSplash);
 recoverDraft();
 renderRanking();
 if (GLOBAL_ON) { loadWorld(); flushPending(); }

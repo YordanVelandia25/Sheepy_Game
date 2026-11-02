@@ -383,6 +383,8 @@ function recoverDraft() {
 
 // --- Dibujo del ranking: podio (1-3), lista (4-10) y tu posición ---
 const AVATAR = 'sprites/avatar-sheepy.webp';
+// Avatares especiales del podio: 1.º Sheepy Corona, 2.º Sheepy Marinera, 3.º Sheepy La Bella
+const PODIUM_AVATARS = { 1: 'sprites/avatar-corona.webp', 2: 'sprites/avatar-marinera.webp', 3: 'sprites/avatar-bella.webp' };
 let me = null;          // { name, best, rank } del jugador actual en el ranking mundial
 let meLoading = 0;
 
@@ -392,10 +394,10 @@ function el(tag, cls, text) {
   if (text != null) e.textContent = text;
   return e;
 }
-function avatar(cls) {
+function avatar(cls, src) {
   const wrap = el('span', 'avatar ' + (cls || ''));
   const im = document.createElement('img');
-  im.src = AVATAR; im.alt = ''; im.width = 80; im.height = 80; im.decoding = 'async';
+  im.src = src || AVATAR; im.alt = ''; im.width = 80; im.height = 80; im.decoding = 'async';
   wrap.appendChild(im);
   return wrap;
 }
@@ -403,8 +405,7 @@ function note(text) { return el('p', 'rank-note', text); }
 
 function podiumSpot(r, place, isMe) {
   const spot = el('div', `spot p${place}${isMe ? ' me' : ''}`);
-  const av = avatar();
-  if (place === 1) av.appendChild(el('span', 'crown'));
+  const av = avatar('', PODIUM_AVATARS[place]);
   av.appendChild(el('span', 'badge', place));
   spot.append(av, el('span', 'spot-name', r.name), el('span', 'spot-score', `${r.meters} m`));
   const block = el('div', 'block');

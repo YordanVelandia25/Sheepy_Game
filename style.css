@@ -433,20 +433,7 @@ kbd {
   font-family: var(--display); font-weight: 900; font-size: 0.85rem;
   border: 2px solid var(--line);
 }
-.spot.p1 .badge { display: none; }
-.crown {
-  position: absolute; top: -30px; left: 50%; translate: -50% 0;
-  width: 44px; height: 30px;
-  background: var(--gold);
-  border: 3px solid var(--line);
-  clip-path: polygon(0 100%, 0 25%, 25% 60%, 50% 0, 75% 60%, 100% 25%, 100% 100%);
-  border-radius: 4px;
-}
-.crown::after { /* contorno interior de la corona */
-  content: ""; position: absolute; inset: 3px 3px 0;
-  background: #ffd76e;
-  clip-path: polygon(0 100%, 0 25%, 25% 60%, 50% 0, 75% 60%, 100% 25%, 100% 100%);
-}
+.spot.p1 .badge { display: none; } /* Sheepy Corona ya lleva su corona */
 .spot-name { max-width: 100%; font-weight: 700; font-size: 0.92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .spot-score {
   font-family: var(--display); font-weight: 900; font-size: 0.95rem;

@@ -42,6 +42,13 @@ const SAFE_M = 100;        // 0–99 m: sin obstáculos
 const BEES_FROM_M = 201;   // 100–200 m: solo cardos; desde 201 m también abejas
 const HEART_FROM_M = 400;  // primer billete (devuelve una vida)…
 const HEART_EVERY_M = 300; // …y luego uno cada 300 m
+const SHIELD_FROM_M = 201; // escudo: 5 s sin recibir daño (poco frecuente)
+const SHIELD_TIME = 5;
+const SPIKES_FROM_M = 300; // pinchos en los tablones (como los cardos)
+const BATS_FROM_M = 450;   // murciélagos (como las abejas)
+const HAT_FROM_M = 500;    // gorrito con hélice: impulsa a Sheepy 50 m (poco frecuente)
+const HAT_BOOST_M = 50;
+const HAT_SPEED = 1150;
 
 // ---------- Pantalla ----------
 let W, H, dpr, scale, GH, offX;
@@ -89,6 +96,8 @@ const sfx = {
   ouch: () => { tone('square', 420, 120, 0.25, 0.08); },
   fall: () => tone('sine', 600, 90, 0.7, 0.15),
   record: () => { tone('sine', 520, 780, 0.12, 0.1); setTimeout(() => tone('sine', 780, 1040, 0.15, 0.1), 120); },
+  shield: () => { tone('triangle', 400, 900, 0.18, 0.1); setTimeout(() => tone('sine', 900, 1200, 0.2, 0.08), 110); },
+  whoosh: () => { tone('sawtooth', 200, 1100, 0.6, 0.05); tone('sine', 300, 1300, 0.6, 0.08); },
   heal: () => { tone('sine', 660, 880, 0.1, 0.1); setTimeout(() => tone('sine', 880, 1320, 0.16, 0.1), 90); },
 };
 function renderSoundBtn() {
@@ -134,6 +143,7 @@ function inputDir() {
 // ---------- Estado ----------
 let mode = 'menu'; // menu | play | over
 let sheep, bars, foes, parts, camY, topY, maxY, hearts, inv, time, newRecordShown, nextHeartM;
+let shield, boost, nextShieldM, nextHatM;
 let best = Number(safeGet('best-m') || 0);
 
 const clouds = Array.from({ length: 5 }, () => ({
@@ -153,6 +163,10 @@ function reset() {
   maxY = 0;
   hearts = MAX_HEARTS;
   nextHeartM = HEART_FROM_M;
+  shield = 0;
+  boost = null;
+  nextShieldM = SHIELD_FROM_M + Math.random() * 60;
+  nextHatM = HAT_FROM_M + Math.random() * 80;
   inv = 0;
   time = 0;
   newRecordShown = false;
@@ -176,21 +190,32 @@ function genBar() {
   bars.push(bar);
 
   // Obstáculos: van apareciendo poco a poco y cada uno se vuelve más frecuente con la altura
-  const thornD = Math.min(Math.max((m - SAFE_M) / 300, 0), 1);
-  const beeD = Math.min(Math.max((m - BEES_FROM_M) / 400, 0), 1);
-  const heartHere = m >= nextHeartM && type !== 'fragile';
-  if (heartHere) {
-    nextHeartM += HEART_EVERY_M;
-    foes.push({ kind: 'heart', bar, off: w / 2, x: 0, y: 0, r: 16, t: 0 });
+  const ramp = (from, span) => Math.min(Math.max((m - from) / span, 0), 1);
+  const thornD = ramp(SAFE_M, 300), beeD = ramp(BEES_FROM_M, 400);
+  const spikeD = ramp(SPIKES_FROM_M, 400), batD = ramp(BATS_FROM_M, 400);
+
+  // Premios sobre el tablón (como mucho uno por tablón y nunca en uno frágil)
+  let prize = null;
+  if (type !== 'fragile') {
+    if (m >= nextHeartM) { prize = 'heart'; nextHeartM += HEART_EVERY_M; }
+    else if (m >= HAT_FROM_M && m >= nextHatM && Math.random() < 0.03) { prize = 'hat'; nextHatM = m + 180 + Math.random() * 120; }
+    else if (m >= SHIELD_FROM_M && m >= nextShieldM && Math.random() < 0.035) { prize = 'shield'; nextShieldM = m + 110 + Math.random() * 90; }
   }
-  if (m >= BEES_FROM_M && Math.random() < 0.06 + 0.16 * beeD) {
-    foes.push({
-      kind: 'bee', x: 20 + Math.random() * (GW - 40), baseY: y + gap / 2, y: y + gap / 2,
-      vx: (50 + 70 * beeD) * (Math.random() < 0.5 ? -1 : 1), t: Math.random() * 6, r: 13,
-    });
-  }
-  if (!heartHere && type === 'normal' && m >= SAFE_M && w > 70 && Math.random() < 0.08 + 0.14 * thornD) {
-    foes.push({ kind: 'thorn', bar, off: Math.random() < 0.5 ? 14 : w - 14, x: 0, y: 0, r: 12 });
+  if (prize) foes.push({ kind: prize, bar, off: w / 2, x: 0, y: 0, r: 16, t: Math.random() * 6 });
+
+  // Voladores: abejas desde 201 m y murciélagos desde 450 m (uno por hueco como mucho)
+  const flyer = (kind, dd, speed) => foes.push({
+    kind, x: 20 + Math.random() * (GW - 40), baseY: y + gap / 2, y: y + gap / 2,
+    vx: (speed + 70 * dd) * (Math.random() < 0.5 ? -1 : 1), t: Math.random() * 6, r: 13,
+  });
+  if (m >= BATS_FROM_M && Math.random() < 0.04 + 0.1 * batD) flyer('bat', batD, 60);
+  else if (m >= BEES_FROM_M && Math.random() < 0.06 + 0.16 * beeD) flyer('bee', beeD, 50);
+
+  // En el tablón: cardos desde 100 m y pinchos desde 300 m (uno por tablón)
+  if (!prize && type === 'normal' && w > 70) {
+    const off = Math.random() < 0.5 ? 16 : w - 16;
+    if (m >= SPIKES_FROM_M && Math.random() < 0.05 + 0.1 * spikeD) foes.push({ kind: 'spike', bar, off, x: 0, y: 0, r: 12 });
+    else if (m >= SAFE_M && Math.random() < 0.08 + 0.14 * thornD) foes.push({ kind: 'thorn', bar, off, x: 0, y: 0, r: 12 });
   }
   topY = y;
 }
@@ -596,14 +621,25 @@ function hurt() {
   if (hearts <= 0) gameOver('hit');
 }
 
-function collectHeart(f) {
+const PRIZES = new Set(['heart', 'shield', 'hat']);
+function collectPrize(f) {
   f.taken = true;
-  if (hearts < MAX_HEARTS) hearts++;
-  puff(f.x, f.y, '#ff6b6b', 10, 150);
   puff(f.x, f.y, '#ffffff', 6, 110);
-  sfx.heal();
-  updateHud();
-  heartsEl.classList.remove('gain'); void heartsEl.offsetWidth; heartsEl.classList.add('gain');
+  if (f.kind === 'heart') {
+    if (hearts < MAX_HEARTS) hearts++;
+    puff(f.x, f.y, '#5bc8f5', 10, 150);
+    sfx.heal();
+    updateHud();
+    heartsEl.classList.remove('gain'); void heartsEl.offsetWidth; heartsEl.classList.add('gain');
+  } else if (f.kind === 'shield') {
+    shield = SHIELD_TIME;
+    puff(f.x, f.y, '#7fd3ff', 12, 160);
+    sfx.shield();
+  } else if (f.kind === 'hat') {
+    boost = { toY: Math.min(sheep.y, f.y) - HAT_BOOST_M * PX_PER_M, t: 0 };
+    puff(f.x, f.y, '#ffc33e', 12, 160);
+    sfx.whoosh();
+  }
 }
 
 // ---------- Animación de orejas y brazos ----------
@@ -640,11 +676,21 @@ function update(dt) {
   if (sheep.x > GW + 16) sheep.x = -16;
 
   const prevY = sheep.y;
-  sheep.vy += GRAVITY * dt;
-  sheep.y += sheep.vy * dt;
+  if (boost) {
+    // Gorrito con hélice: sube sin gravedad hasta completar los 50 m
+    sheep.vy = -HAT_SPEED;
+    sheep.y += sheep.vy * dt;
+    boost.t += dt;
+    if (Math.random() < dt * 30) puff(sheep.x + (Math.random() - 0.5) * 20, sheep.y + 4, '#ffffff', 1, 60);
+    if (sheep.y <= boost.toY) { sheep.y = boost.toY; sheep.vy = -JUMP * 0.55; boost = null; inv = Math.max(inv, 0.6); }
+  } else {
+    sheep.vy += GRAVITY * dt;
+    sheep.y += sheep.vy * dt;
+  }
   sheep.squash = Math.max(0, sheep.squash - dt * 5);
   animateLimbs(sheep, dt);
   if (inv > 0) inv -= dt;
+  if (shield > 0) shield = Math.max(0, shield - dt);
 
   for (const b of bars) {
     if (b.type === 'moving') {
@@ -683,20 +729,26 @@ function update(dt) {
       if (f.x < 16) { f.x = 16; f.vx *= -1; }
       if (f.x > GW - 16) { f.x = GW - 16; f.vx *= -1; }
       f.y = f.baseY + Math.sin(f.t * 3) * 12;
-    } else if (f.kind === 'heart') {
+    } else if (f.kind === 'bat') {
+      f.t += dt;
+      f.x += f.vx * dt;
+      if (f.x < 18) { f.x = 18; f.vx *= -1; }
+      if (f.x > GW - 18) { f.x = GW - 18; f.vx *= -1; }
+      f.y = f.baseY + Math.sin(f.t * 4) * 9 + Math.sin(f.t * 1.7) * 6;
+    } else if (PRIZES.has(f.kind)) {
       f.t += dt;
       f.x = f.bar.x + f.off;
       f.y = f.bar.y - 34 + Math.sin(f.t * 3) * 4;
       if (playing && !f.taken) {
         const dx = f.x - sheep.x, dy = f.y - (sheep.y - SHEEP_H * 0.5);
-        if (dx * dx + dy * dy < (f.r + SHEEP_W * 0.45) ** 2) collectHeart(f);
+        if (dx * dx + dy * dy < (f.r + SHEEP_W * 0.45) ** 2) collectPrize(f);
       }
       continue;
     } else {
       f.x = f.bar.x + f.off;
       f.y = f.bar.y - 10;
     }
-    if (playing && inv <= 0) {
+    if (playing && inv <= 0 && shield <= 0 && !boost) {
       const dx = f.x - sheep.x, dy = f.y - (sheep.y - SHEEP_H * 0.5);
       if (dx * dx + dy * dy < (f.r + SHEEP_W * 0.36) ** 2) { hurt(); if (mode !== 'play') return; }
     }
@@ -1056,6 +1108,7 @@ function drawSheep(s) {
       ctx.beginPath(); ctx.arc(x, y - 3 * SPR_K, 7 * SPR_K, 0.25 * Math.PI, 0.75 * Math.PI); ctx.stroke();
     }
   }
+  if (boost) { ctx.translate(0, top + 4); drawPropHat(boost.t, 1); }
   ctx.restore();
 }
 
@@ -1113,6 +1166,147 @@ function drawHeart(f) {
   ctx.restore();
 }
 
+// ---------- Nuevos elementos ----------
+// Gorrito de hélice (lo usa el premio y Sheepy mientras vuela)
+function drawPropHat(t, k) {
+  ctx.save();
+  ctx.scale(k, k);
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
+  // Gorro a gajos
+  const cols = ['#ff7751', '#ffc33e', '#10bdc6', '#7c5cff'];
+  for (let i = 0; i < 4; i++) {
+    ctx.fillStyle = cols[i];
+    ctx.beginPath(); ctx.moveTo(0, -12);
+    ctx.ellipse(0, 0, 13, 12, 0, Math.PI + (i * Math.PI) / 4, Math.PI + ((i + 1) * Math.PI) / 4);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.beginPath(); ctx.ellipse(0, 0, 13, 12, 0, Math.PI, 0); ctx.closePath(); ctx.stroke();
+  ctx.fillStyle = '#ff7751';
+  ctx.beginPath(); ctx.ellipse(0, 0.5, 15, 3, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  // Palito y hélice girando
+  ctx.beginPath(); ctx.moveTo(0, -12); ctx.lineTo(0, -17); ctx.stroke();
+  const spin = Math.cos(t * 28);
+  ctx.fillStyle = '#ffc33e';
+  ctx.beginPath(); ctx.ellipse(-8 * spin, -18, Math.max(1.5, 9 * Math.abs(spin)), 2.6, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#e3262b';
+  ctx.beginPath(); ctx.ellipse(8 * spin, -18, Math.max(1.5, 9 * Math.abs(spin)), 2.6, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(0, -18, 2.2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+function prizeGlow(f, rx, ry) {
+  ctx.fillStyle = 'rgba(255, 220, 120, 0.4)';
+  ctx.beginPath(); ctx.ellipse(0, 0, rx + Math.sin(f.t * 3) * 2, ry + Math.sin(f.t * 3) * 2, 0, 0, Math.PI * 2); ctx.fill();
+}
+function drawHatPrize(f) {
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  prizeGlow(f, 22, 22);
+  ctx.translate(0, 8);
+  ctx.rotate(Math.sin(f.t * 2.4) * 0.12);
+  drawPropHat(f.t * 0.35, 1.05);
+  ctx.restore();
+}
+function shieldPath(w, h) {
+  ctx.beginPath();
+  ctx.moveTo(0, -h);
+  ctx.quadraticCurveTo(w * 0.55, -h * 0.75, w, -h * 0.8);
+  ctx.quadraticCurveTo(w, h * 0.25, 0, h);
+  ctx.quadraticCurveTo(-w, h * 0.25, -w, -h * 0.8);
+  ctx.quadraticCurveTo(-w * 0.55, -h * 0.75, 0, -h);
+  ctx.closePath();
+}
+function drawShieldPrize(f) {
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  prizeGlow(f, 21, 21);
+  ctx.rotate(Math.sin(f.t * 2.4) * 0.12);
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2.2; ctx.lineJoin = 'round';
+  shieldPath(13, 15); ctx.fillStyle = '#10bdc6'; ctx.fill(); ctx.stroke();
+  shieldPath(8.5, 10); ctx.fillStyle = '#8fe3e8'; ctx.fill();
+  // Estrella
+  ctx.fillStyle = '#ffc33e'; ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5, r = i % 2 ? 2.6 : 6;
+    ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r - 0.5);
+  }
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.beginPath(); ctx.ellipse(-6, -8, 2.5, 1.5, -0.6, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+// Burbuja protectora alrededor de Sheepy (parpadea el último segundo)
+function drawShieldBubble(s) {
+  if (shield < 1.2 && Math.floor(shield * 8) % 2 === 0) return;
+  const cx = s.x, cy = s.y - SHEEP_H * 0.5, r = SHEEP_H * 0.62;
+  ctx.save();
+  const g = ctx.createRadialGradient(cx, cy, r * 0.55, cx, cy, r);
+  g.addColorStop(0, 'rgba(143, 227, 232, 0)');
+  g.addColorStop(1, 'rgba(16, 189, 198, 0.35)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+  ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(16, 189, 198, 0.9)'; ctx.stroke();
+  ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'; ctx.lineCap = 'round';
+  const a = time * 2;
+  ctx.beginPath(); ctx.arc(cx, cy, r - 5, a, a + 0.7); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, r - 5, a + Math.PI, a + Math.PI + 0.35); ctx.stroke();
+  ctx.restore();
+}
+// Murciélago: misma mecánica que la abeja
+function drawBat(f) {
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  ctx.scale(f.vx < 0 ? -1 : 1, 1);
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
+  const flap = Math.sin(time * 16 + f.t);
+  ctx.fillStyle = '#4a3a6b';
+  for (const dir of [-1, 1]) {
+    ctx.save();
+    ctx.scale(dir, 1);
+    ctx.rotate(-flap * 0.45);
+    ctx.beginPath();
+    ctx.moveTo(4, -3);
+    ctx.quadraticCurveTo(12, -12, 22, -7);
+    ctx.quadraticCurveTo(19, -2, 20, 3);
+    ctx.quadraticCurveTo(16, 0, 13, 4);
+    ctx.quadraticCurveTo(10, 1, 6, 4);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+  // Cuerpo y orejas
+  ctx.fillStyle = '#5d4a85';
+  ctx.beginPath();
+  ctx.moveTo(-6, -6); ctx.lineTo(-5, -13); ctx.lineTo(-1, -8); ctx.lineTo(1, -8); ctx.lineTo(5, -13); ctx.lineTo(6, -6);
+  ctx.quadraticCurveTo(9, 2, 0, 8); ctx.quadraticCurveTo(-9, 2, -6, -6);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  // Ojos y colmillos
+  ctx.fillStyle = '#ffd23f';
+  ctx.beginPath(); ctx.arc(-2.6, -3, 2.1, 0, Math.PI * 2); ctx.arc(2.6, -3, 2.1, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = OUTLINE;
+  ctx.beginPath(); ctx.arc(-2.2, -2.8, 0.9, 0, Math.PI * 2); ctx.arc(3, -2.8, 0.9, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ffffff'; ctx.lineWidth = 0.8;
+  ctx.beginPath(); ctx.moveTo(-2, 2); ctx.lineTo(-1.2, 4.5); ctx.lineTo(-0.4, 2); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0.4, 2); ctx.lineTo(1.2, 4.5); ctx.lineTo(2, 2); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+// Pinchos metálicos sobre el tablón: misma mecánica que el cardo
+function drawSpike(f) {
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
+  ctx.fillStyle = '#6f7682';
+  ctx.beginPath(); ctx.rect(-14, 7, 28, 4); ctx.fill(); ctx.stroke();
+  for (let i = -1; i <= 1; i++) {
+    const x = i * 9;
+    ctx.fillStyle = '#c9ced6';
+    ctx.beginPath(); ctx.moveTo(x - 5, 7); ctx.lineTo(x, -9); ctx.lineTo(x + 5, 7); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#f4f6f9';
+    ctx.beginPath(); ctx.moveTo(x - 2.5, 6); ctx.lineTo(x, -5); ctx.lineTo(x, 6); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawThorn(f) {
   ctx.save();
   ctx.translate(f.x, f.y);
@@ -1153,7 +1347,7 @@ function draw() {
 
   ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * offX, -dpr * camY * scale);
   for (const b of bars) drawBar(b);
-  for (const f of foes) (f.kind === 'bee' ? drawBee : f.kind === 'heart' ? drawHeart : drawThorn)(f);
+  for (const f of foes) FOE_DRAW[f.kind](f);
   for (const p of parts) {
     ctx.globalAlpha = Math.max(p.life / p.max, 0);
     ctx.fillStyle = p.color;
@@ -1163,6 +1357,7 @@ function draw() {
   }
   ctx.globalAlpha = 1;
   drawSheep(sheep);
+  if (shield > 0) drawShieldBubble(sheep);
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (offX > 4) {
@@ -1173,6 +1368,8 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(offX, 0); ctx.lineTo(offX, H); ctx.moveTo(W - offX, 0); ctx.lineTo(W - offX, H); ctx.stroke();
   }
 }
+
+const FOE_DRAW = { bee: drawBee, bat: drawBat, thorn: drawThorn, spike: drawSpike, heart: drawHeart, shield: drawShieldPrize, hat: drawHatPrize };
 
 // ---------- Bucle ----------
 let last = performance.now();

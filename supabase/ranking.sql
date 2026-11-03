@@ -1,4 +1,4 @@
--- Ranking mundial de Sheepy Jump
+-- Ranking mundial de Sheepy Jumps
 -- Un registro por jugador (por nombre, sin distinguir mayúsculas).
 -- Cuando el jugador supera su marca personal se MODIFICA su registro; no se crea otro.
 --

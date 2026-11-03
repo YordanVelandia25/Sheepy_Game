@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
-  <title>Sheepy Jump</title>
+  <title>Sheepy Jumps</title>
   <meta name="description" content="Ayuda a la oveja a saltar de tablón en tablón y subir lo más alto posible.">
   <meta name="theme-color" content="#47a6e0">
   <link rel="manifest" href="manifest.json">
@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grandstander:wght@800;900&family=Jost:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="style.css?v=41">
+  <link rel="stylesheet" href="style.css?v=42">
 </head>
 <body>
 <!--GAME-START-->
@@ -20,9 +20,9 @@
 
   <div id="splash">
     <div class="splash-rays" aria-hidden="true"></div>
-    <h1 class="logo" aria-label="Sheepy Jump">
+    <h1 class="logo" aria-label="Sheepy Jumps">
       <span class="word w1" aria-hidden="true"><span class="l" style="--i:0"><span>S</span></span><span class="l" style="--i:1"><span>h</span></span><span class="l" style="--i:2"><span>e</span></span><span class="l" style="--i:3"><span>e</span></span><span class="l" style="--i:4"><span>p</span></span><span class="l" style="--i:5"><span>y</span></span></span>
-      <span class="word w2" aria-hidden="true"><span class="l" style="--i:6"><span>J</span></span><span class="l" style="--i:7"><span>u</span></span><span class="l" style="--i:8"><span>m</span></span><span class="l" style="--i:9"><span>p</span></span></span>
+      <span class="word w2" aria-hidden="true"><span class="l" style="--i:6"><span>J</span></span><span class="l" style="--i:7"><span>u</span></span><span class="l" style="--i:8"><span>m</span></span><span class="l" style="--i:9"><span>p</span></span><span class="l" style="--i:10"><span>s</span></span></span>
     </h1>
     <div class="hero-wrap" aria-hidden="true">
       <div class="hero-shadow"></div>
@@ -47,7 +47,7 @@
 
   <div id="overlay">
     <div class="card">
-      <h1 class="menu-logo" aria-label="Sheepy Jump"><span class="w1">Sheepy</span> <span class="w2">Jump</span></h1>
+      <h1 class="menu-logo" aria-label="Sheepy Jumps"><span class="w1">Sheepy</span> <span class="w2">Jumps</span></h1>
       <div id="result" hidden>
         <h2 id="title"></h2>
         <p id="message"></p>
@@ -98,8 +98,8 @@
     </div>
   </div>
 
-  <script src="config.js?v=41"></script>
-  <script src="game.js?v=41"></script>
+  <script src="config.js?v=42"></script>
+  <script src="game.js?v=42"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));

@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grandstander:wght@800;900&family=Jost:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="style.css?v=40">
+  <link rel="stylesheet" href="style.css?v=41">
 </head>
 <body>
 <!--GAME-START-->
@@ -25,9 +25,9 @@
       <span class="word w2" aria-hidden="true"><span class="l" style="--i:6"><span>J</span></span><span class="l" style="--i:7"><span>u</span></span><span class="l" style="--i:8"><span>m</span></span><span class="l" style="--i:9"><span>p</span></span></span>
     </h1>
     <div class="hero-wrap" aria-hidden="true">
+      <div class="hero-shadow"></div>
       <div class="hero">
         <img class="hero-body" src="sprites/inicio-cuerpo.webp" alt="" width="600" height="837">
-        <img class="hero-arm" src="sprites/inicio-brazo.webp" alt="" width="600" height="837">
         <img class="hero-sparks" src="sprites/inicio-chispas.webp" alt="" width="600" height="837">
       </div>
     </div>
@@ -98,8 +98,8 @@
     </div>
   </div>
 
-  <script src="config.js?v=40"></script>
-  <script src="game.js?v=40"></script>
+  <script src="config.js?v=41"></script>
+  <script src="game.js?v=41"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));

@@ -272,7 +272,8 @@ const playerInput = $('player');
 const rankingEl = $('ranking');
 const savedEl = $('saved');
 const resultEl = $('result');
-// Pestañas: Ranking mundial / Cómo jugar
+const tabsPanel = document.querySelector('.tabs-panel');
+// Pestañas: Ranking / Cómo jugar
 const TAB_IDS = ['ranking', 'howto'];
 function selectTab(id, focus) {
   for (const t of TAB_IDS) {
@@ -626,6 +627,24 @@ function start() {
   overlay.classList.add('hidden');
 }
 
+// Frases al perder, según lo que hizo caer a Sheepy (sin repetir la última)
+const LOSS_PHRASES = {
+  fall: ['¡Uy, se cayó!', '¡Sheepy miró hacia abajo!', '¡Faltó un tablón!', '¡Directo al pasto!', '¡Ese salto se quedó corto!'],
+  bee: ['¡Bzzz! Ganaron las abejas', '¡Auch, un aguijón!', '¡Esa abeja no quería compartir!', '¡Picadura en la lana!'],
+  bat: ['¡Un murciélago la asustó!', '¡Mordisco nocturno!', '¡Ese murciélago no veía nada!', '¡Ataque desde la oscuridad!'],
+  thorn: ['¡Cardos y lana no combinan!', '¡Pinchazo de cardo!', '¡Aterrizó en un cardo!', '¡Ese cardo estaba de malas!'],
+  spike: ['¡Auch, pinchos!', '¡Esos pinchos no eran de adorno!', '¡Pinchada sin piedad!', '¡Mala idea pisar ahí!'],
+  flip: ['¡Chanclazo!', '¡La chancleta voladora no perdona!', '¡Llegó la chancla!', '¡Nadie esquiva la chancla!'],
+  hit: ['¡Ay, ay, ay!'],
+};
+let lastPhrase = '';
+function lossPhrase(reason) {
+  const list = LOSS_PHRASES[reason] || LOSS_PHRASES.hit;
+  const options = list.length > 1 ? list.filter((t) => t !== lastPhrase) : list;
+  lastPhrase = options[Math.floor(Math.random() * options.length)];
+  return lastPhrase;
+}
+
 function gameOver(reason) {
   mode = 'over';
   const m = meters();
@@ -644,8 +663,9 @@ function gameOver(reason) {
   }
   resultEl.hidden = false;
   selectTab('ranking');
+  tabsPanel.classList.add('only-ranking'); // tras perder solo se muestra el ranking
   renderRanking();
-  titleEl.textContent = reason === 'fall' ? '¡Uy, se cayó!' : '¡Ay, ay, ay!';
+  titleEl.textContent = lossPhrase(reason);
   messageEl.innerHTML = `Subiste <strong>${m} metros</strong>`;
   bestEl.textContent = isRecord && m > 0 ? '¡Nuevo récord!' : best ? `Récord: ${best} m` : '';
   playBtn.textContent = 'Jugar otra vez';
@@ -653,7 +673,7 @@ function gameOver(reason) {
   updateHud();
 }
 
-function hurt() {
+function hurt(cause) {
   hearts--;
   inv = 1.6;
   sheep.vy = Math.min(sheep.vy, -JUMP * 0.55);
@@ -661,7 +681,7 @@ function hurt() {
   sfx.ouch();
   navigator.vibrate?.(120);
   updateHud();
-  if (hearts <= 0) gameOver('hit');
+  if (hearts <= 0) gameOver(cause || 'hit');
 }
 
 // ---------- Chancleta voladora ----------
@@ -855,7 +875,7 @@ function update(dt) {
     }
     if (playing && inv <= 0 && shield <= 0 && !boost) {
       const dx = f.x - sheep.x, dy = f.y - (sheep.y - SHEEP_H * 0.5);
-      if (dx * dx + dy * dy < (f.r + SHEEP_W * 0.36) ** 2) { hurt(); if (mode !== 'play') return; }
+      if (dx * dx + dy * dy < (f.r + SHEEP_W * 0.36) ** 2) { hurt(f.kind); if (mode !== 'play') return; }
     }
   }
 

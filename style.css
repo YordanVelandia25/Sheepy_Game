@@ -587,3 +587,8 @@ kbd {
 .howto-lead { font-family: var(--display); font-weight: 900; font-size: 1.2rem; line-height: 1.25; text-align: center; color: var(--ink); text-wrap: balance; }
 .tabbar button { white-space: nowrap; font-size: clamp(0.88rem, 4.1vw, 1.05rem); padding-inline: 4px; }
 #tab-ranking { text-align: left; }
+
+/* Tras perder: solo la pestaña de ranking, como título */
+.tabs-panel.only-ranking .tabbar { grid-template-columns: 1fr; }
+.tabs-panel.only-ranking #tabBtn-howto { display: none; }
+.tabs-panel.only-ranking #tabBtn-ranking { pointer-events: none; }

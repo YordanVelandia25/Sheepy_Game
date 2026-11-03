@@ -181,7 +181,7 @@ function reset() {
   nextHatM = HAT_FROM_M + Math.random() * 80;
   nextFlipM = FLIP_FROM_M + Math.random() * 80;
   nextJesusM = JESUS_FROM_M + Math.random() * 90;
-  hideAnnounce();
+  sheepSay = null;
   inv = 0;
   time = 0;
   newRecordShown = false;
@@ -697,8 +697,8 @@ function hurt(cause) {
 }
 
 // ---------- Chancleta voladora ----------
-const announceEl = $('announce');
-let announceTimer = 0;
+let sheepSay = null; // globo de diálogo que sale de Sheepy: { text, t, dur }
+const SAY_TIME = 2.4;
 function spawnFlip() {
   const dir = Math.random() < 0.5 ? 1 : -1;
   const sy = Math.min(Math.max(sheep.y - camY - 30 - Math.random() * 60, 140), GH - 220);
@@ -708,16 +708,8 @@ function spawnFlip() {
   sfx.alert();
 }
 function showAnnounce(text) {
-  announceEl.querySelector('span').textContent = text;
-  announceEl.hidden = false;
-  announceEl.classList.remove('show'); void announceEl.offsetWidth; announceEl.classList.add('show');
-  clearTimeout(announceTimer);
-  announceTimer = setTimeout(hideAnnounce, 2400);
+  sheepSay = { text, t: SAY_TIME, dur: SAY_TIME };
   speak(text.replace(/[¡!]/g, ''));
-}
-function hideAnnounce() {
-  clearTimeout(announceTimer);
-  if (announceEl) { announceEl.hidden = true; announceEl.classList.remove('show'); }
 }
 // Voz del anuncio con la síntesis de voz del navegador (sin archivos de audio)
 let voiceEs = null;
@@ -839,6 +831,7 @@ function update(dt) {
   animateLimbs(sheep, dt);
   if (inv > 0) inv -= dt;
   if (shield > 0) shield = Math.max(0, shield - dt);
+  if (sheepSay && (sheepSay.t -= dt) <= 0) sheepSay = null;
 
   for (const b of bars) {
     if (b.type === 'moving') {
@@ -1534,32 +1527,43 @@ function drawJesus(f) {
 }
 function drawSpeech(f) {
   if (f.sayT <= 0 || !f.say) return;
-  const a = Math.min(1, f.sayT / 0.4, (3.5 - f.sayT) / 0.15 + 0.2);
+  drawBubble(f.say, f.x, f.y - JESUS_H - 6, Math.min(1, f.sayT / 0.4, (3.5 - f.sayT) / 0.15 + 0.2));
+}
+// Globo de diálogo con pico hacia (tipX, tipY); el texto se parte en líneas
+function drawBubble(text, tipX, tipY, alpha, o = {}) {
+  const size = o.size || 14, maxW = o.maxW || 170, lh = Math.round(size * 1.2);
+  const padX = o.padX || 12, padY = o.padY || 9;
   ctx.save();
-  ctx.globalAlpha = Math.max(0, Math.min(1, a));
-  ctx.font = '900 14px Grandstander, "Lilita One", sans-serif';
-  // Partir el texto en líneas de ~170 px
-  const words = f.say.split(' '), lines = [];
+  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+  ctx.font = `900 ${size}px Grandstander, "Lilita One", sans-serif`;
+  const words = text.split(' '), lines = [];
   let line = '';
   for (const wd of words) {
     const t = line ? line + ' ' + wd : wd;
-    if (ctx.measureText(t).width > 170 && line) { lines.push(line); line = wd; } else line = t;
+    if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = wd; } else line = t;
   }
   lines.push(line);
-  const lh = 17, padX = 12, padY = 9;
   const bw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + padX * 2;
   const bh = lines.length * lh + padY * 2;
-  const tipX = f.x, tipY = f.y - JESUS_H - 6;
   const bx = Math.min(Math.max(tipX - bw / 2, 6), GW - 6 - bw), by = tipY - 10 - bh;
-  ctx.fillStyle = '#ffffff'; ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2.5; ctx.lineJoin = 'round';
+  const tx = Math.min(Math.max(tipX, bx + 14), bx + bw - 14);
+  ctx.fillStyle = o.bg || '#ffffff'; ctx.strokeStyle = OUTLINE; ctx.lineWidth = o.line || 2.5; ctx.lineJoin = 'round';
   ctx.beginPath();
-  ctx.roundRect(bx, by, bw, bh, 12);
-  ctx.moveTo(tipX - 7, by + bh); ctx.lineTo(tipX, tipY); ctx.lineTo(tipX + 7, by + bh);
+  ctx.roundRect(bx, by, bw, bh, Math.min(12, bh / 2));
+  ctx.moveTo(tx - 7, by + bh); ctx.lineTo(tipX, tipY); ctx.lineTo(tx + 7, by + bh);
   ctx.fill(); ctx.stroke();
-  ctx.fillRect(tipX - 5.5, by + bh - 3, 11, 4);   // tapa la línea entre globo y pico
-  ctx.fillStyle = OUTLINE; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillRect(tx - 5.5, by + bh - 3, 11, 4);   // tapa la línea entre globo y pico
+  ctx.fillStyle = o.color || OUTLINE; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   lines.forEach((l, i) => ctx.fillText(l, bx + bw / 2, by + padY + lh * i + lh / 2 + 1));
   ctx.restore();
+}
+// Lo que dice Sheepy (p. ej. el aviso de la chancleta): globo pequeño sobre su cabeza
+function drawSheepSay() {
+  if (!sheepSay) return;
+  const { text, t, dur } = sheepSay;
+  const pop = Math.min(1, (dur - t) / 0.15);
+  drawBubble(text, sheep.x, sheep.y - SHEEP_H - 2 - (1 - pop) * 6, Math.min(1, t / 0.35, pop + 0.2),
+    { size: 11.5, maxW: 120, padX: 9, padY: 6, line: 2, color: '#d9452b' });
 }
 
 // Resorte sobre el tablón: no hace daño, lanza a Sheepy 30 m
@@ -1654,6 +1658,7 @@ function draw() {
   drawSheep(sheep);
   if (shield > 0) drawShieldBubble(sheep);
   for (const f of foes) if (f.kind === 'jesus') drawSpeech(f);
+  drawSheepSay();
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (offX > 4) {

@@ -50,6 +50,8 @@ const BATS_FROM_M = 450;   // murciélagos (como las abejas)
 const HAT_FROM_M = 350;    // gorrito con hélice: impulsa a Sheepy 50 m (poco frecuente)
 const HAT_BOOST_M = 50;
 const HAT_SPEED = 1150;
+const JESUS_FROM_M = 60;   // Jesús sobre un tablón (poco frecuente): no hace daño ni da premio, anima a Sheepy
+const JESUS_H = 74;
 const FLIP_FROM_M = 300;   // chancleta voladora: cruza la pantalla de lado a lado (poco frecuente)
 const FLIP_WARN = 1.1;     // segundos de aviso antes de que entre
 const SPRING_M = 30;       // resorte en los tablones: impulsa 30 m (desde el inicio, frecuente)
@@ -106,6 +108,7 @@ const sfx = {
   whoosh: () => { tone('sawtooth', 200, 1100, 0.6, 0.05); tone('sine', 300, 1300, 0.6, 0.08); },
   spring: () => { tone('square', 160, 720, 0.28, 0.06); tone('sine', 220, 990, 0.32, 0.1); },
   alert: () => { tone('square', 880, 660, 0.12, 0.06); setTimeout(() => tone('square', 880, 660, 0.12, 0.06), 160); },
+  cheer: () => { tone('sine', 523, 523, 0.12, 0.07); setTimeout(() => tone('sine', 659, 659, 0.12, 0.07), 110); setTimeout(() => tone('sine', 784, 784, 0.2, 0.07), 220); },
   heal: () => { tone('sine', 660, 880, 0.1, 0.1); setTimeout(() => tone('sine', 880, 1320, 0.16, 0.1), 90); },
 };
 function renderSoundBtn() {
@@ -151,7 +154,7 @@ function inputDir() {
 // ---------- Estado ----------
 let mode = 'menu'; // menu | play | over
 let sheep, bars, foes, parts, camY, topY, maxY, hearts, inv, time, newRecordShown, nextHeartM;
-let shield, boost, nextShieldM, nextHatM, nextFlipM;
+let shield, boost, nextShieldM, nextHatM, nextFlipM, nextJesusM;
 let best = Number(safeGet('best-m') || 0);
 
 const clouds = Array.from({ length: 5 }, () => ({
@@ -176,6 +179,7 @@ function reset() {
   nextShieldM = SHIELD_FROM_M + Math.random() * 60;
   nextHatM = HAT_FROM_M + Math.random() * 80;
   nextFlipM = FLIP_FROM_M + Math.random() * 80;
+  nextJesusM = JESUS_FROM_M + Math.random() * 90;
   hideAnnounce();
   inv = 0;
   time = 0;
@@ -215,6 +219,13 @@ function genBar() {
     else if (!prize && m >= SHIELD_FROM_M && m >= nextShieldM && Math.random() < 0.035) { prize = 'shield'; nextShieldM = m + 110 + Math.random() * 90; }
   }
   if (prize) foes.push({ kind: prize, bar, off: w / 2, x: 0, y: 0, r: 16, t: Math.random() * 6 });
+  // Jesús: de pie en un tablón normal y ancho, en un extremo para que Sheepy pueda caer a su lado
+  if (!prize && type === 'normal' && w >= 70 && m >= nextJesusM && Math.random() < 0.06) {
+    nextJesusM = m + 230 + Math.random() * 200;
+    bar.jesus = { kind: 'jesus', bar, off: Math.random() < 0.5 ? 20 : w - 20, x: 0, y: 0, r: 0, t: Math.random() * 6, say: '', sayT: 0 };
+    foes.push(bar.jesus);
+  }
+  const occupied = !!prize || !!bar.jesus;
 
   // Voladores: abejas desde 201 m y murciélagos desde 450 m (uno por hueco como mucho)
   const flyer = (kind, dd, speed) => foes.push({
@@ -226,10 +237,10 @@ function genBar() {
 
   // En el tablón: resortes desde el inicio, cardos desde 100 m y pinchos desde 300 m (uno por tablón)
   const off = Math.random() < 0.5 ? 16 : w - 16;
-  if (!prize && type !== 'fragile' && m > 8 && Math.random() < SPRING_CHANCE) {
+  if (!occupied && type !== 'fragile' && m > 8 && Math.random() < SPRING_CHANCE) {
     bar.spring = { kind: 'spring', bar, off, x: 0, y: 0, r: 0, squish: 0 };
     foes.push(bar.spring);
-  } else if (!prize && type === 'normal' && w > 70) {
+  } else if (!occupied && type === 'normal' && w > 70) {
     if (m >= SPIKES_FROM_M && Math.random() < 0.05 + 0.1 * spikeD) foes.push({ kind: 'spike', bar, off, x: 0, y: 0, r: 12 });
     else if (m >= SAFE_M && Math.random() < 0.08 + 0.14 * thornD) foes.push({ kind: 'thorn', bar, off, x: 0, y: 0, r: 12 });
   }
@@ -725,6 +736,29 @@ function speak(text) {
   } catch (err) { console.warn('Sin voz:', err); }
 }
 
+// ---------- Jesús: frases de ánimo ----------
+const CHEERS = [
+  '¡Tú puedes, Sheepy!',
+  '¡Sigue saltando, no te rindas!',
+  '¡Estoy contigo en cada salto!',
+  '¡Lo estás haciendo muy bien!',
+  '¡No tengas miedo, sigue subiendo!',
+  '¡Eres más fuerte de lo que crees!',
+  '¡Ánimo, llega a lo más alto!',
+  '¡Cada salto cuenta, sigue adelante!',
+  '¡Confía y sigue saltando!',
+  '¡Qué bien saltas, Sheepy!',
+];
+let lastCheer = '';
+function cheer(f) {
+  if (!f.say) {
+    const opts = CHEERS.filter((c) => c !== lastCheer);
+    f.say = lastCheer = opts[Math.floor(Math.random() * opts.length)];
+    sfx.cheer();
+  }
+  f.sayT = 3.5;
+}
+
 const PRIZES = new Set(['heart', 'shield', 'hat']);
 function collectPrize(f) {
   f.taken = true;
@@ -815,6 +849,7 @@ function update(dt) {
         sheep.squash = 1;
         bumpLimbs(sheep);
         puff(sheep.x, b.y, '#ffffff', 5, 90);
+        if (b.jesus && playing) cheer(b.jesus);
         const sp = b.spring;
         if (sp && Math.abs(sheep.x - (b.x + sp.off)) < 13 + SHEEP_W * 0.3) {
           // Resorte: salto gigante de 30 m
@@ -854,6 +889,12 @@ function update(dt) {
       f.t += dt;
       f.x += f.vx * dt;
       if ((f.vx > 0 && f.x > GW + 60) || (f.vx < 0 && f.x < -60)) { f.gone = true; continue; }
+    } else if (f.kind === 'jesus') {
+      f.t += dt;
+      f.x = f.bar.x + f.off;
+      f.y = f.bar.y;
+      if (f.sayT > 0) f.sayT -= dt;
+      continue;
     } else if (f.kind === 'spring') {
       f.x = f.bar.x + f.off;
       f.y = f.bar.y;
@@ -931,6 +972,7 @@ const SPRITES = {
   armL: 'sprites/oveja-brazo-izq.png',
   armR: 'sprites/oveja-brazo-der.png',
   bill: 'sprites/billete.webp',
+  jesus: 'sprites/jesus.webp',
 };
 // Piezas móviles: esquina superior izquierda (x, y) y punto de giro (px, py), en píxeles del sprite
 const PARTS = {
@@ -1466,6 +1508,50 @@ function drawFlip(f) {
   ctx.restore();
 }
 
+// Jesús de pie sobre el tablón; si Sheepy cae en su tablón, le dice una frase de ánimo
+function drawJesus(f) {
+  const im = img.jesus;
+  if (!im.complete || !im.naturalWidth) return;
+  const h = JESUS_H, w = h * im.naturalWidth / im.naturalHeight;
+  ctx.save();
+  ctx.translate(f.x, f.y + 1);
+  ctx.fillStyle = 'rgba(20,20,30,0.2)';
+  ctx.beginPath(); ctx.ellipse(0, 0, w * 0.42, 3, 0, 0, Math.PI * 2); ctx.fill();
+  const breathe = 1 + Math.sin(f.t * 2) * 0.012;
+  ctx.scale(1, breathe);
+  ctx.drawImage(im, -w / 2, -h, w, h);
+  ctx.restore();
+}
+function drawSpeech(f) {
+  if (f.sayT <= 0 || !f.say) return;
+  const a = Math.min(1, f.sayT / 0.4, (3.5 - f.sayT) / 0.15 + 0.2);
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, Math.min(1, a));
+  ctx.font = '900 14px Grandstander, "Lilita One", sans-serif';
+  // Partir el texto en líneas de ~170 px
+  const words = f.say.split(' '), lines = [];
+  let line = '';
+  for (const wd of words) {
+    const t = line ? line + ' ' + wd : wd;
+    if (ctx.measureText(t).width > 170 && line) { lines.push(line); line = wd; } else line = t;
+  }
+  lines.push(line);
+  const lh = 17, padX = 12, padY = 9;
+  const bw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + padX * 2;
+  const bh = lines.length * lh + padY * 2;
+  const tipX = f.x, tipY = f.y - JESUS_H - 6;
+  const bx = Math.min(Math.max(tipX - bw / 2, 6), GW - 6 - bw), by = tipY - 10 - bh;
+  ctx.fillStyle = '#ffffff'; ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2.5; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.roundRect(bx, by, bw, bh, 12);
+  ctx.moveTo(tipX - 7, by + bh); ctx.lineTo(tipX, tipY); ctx.lineTo(tipX + 7, by + bh);
+  ctx.fill(); ctx.stroke();
+  ctx.fillRect(tipX - 5.5, by + bh - 3, 11, 4);   // tapa la línea entre globo y pico
+  ctx.fillStyle = OUTLINE; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  lines.forEach((l, i) => ctx.fillText(l, bx + bw / 2, by + padY + lh * i + lh / 2 + 1));
+  ctx.restore();
+}
+
 // Resorte sobre el tablón: no hace daño, lanza a Sheepy 30 m
 function drawSpring(f) {
   const k = f.squish;                         // 1 justo al saltar: se estira y luego vuelve
@@ -1557,6 +1643,7 @@ function draw() {
   ctx.globalAlpha = 1;
   drawSheep(sheep);
   if (shield > 0) drawShieldBubble(sheep);
+  for (const f of foes) if (f.kind === 'jesus') drawSpeech(f);
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (offX > 4) {
@@ -1568,7 +1655,7 @@ function draw() {
   }
 }
 
-const FOE_DRAW = { bee: drawBee, bat: drawBat, thorn: drawThorn, spike: drawSpike, spring: drawSpring, flip: drawFlip, heart: drawHeart, shield: drawShieldPrize, hat: drawHatPrize };
+const FOE_DRAW = { bee: drawBee, bat: drawBat, thorn: drawThorn, spike: drawSpike, spring: drawSpring, flip: drawFlip, jesus: drawJesus, heart: drawHeart, shield: drawShieldPrize, hat: drawHatPrize };
 
 // ---------- Bucle ----------
 let last = performance.now();

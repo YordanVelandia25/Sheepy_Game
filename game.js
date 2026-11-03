@@ -131,8 +131,7 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = true;
   if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = true;
-  // Enter/espacio empiezan la partida desde el menú, pero no justo después de la pantalla de inicio
-  if ((e.key === 'Enter' || e.key === ' ') && mode !== 'play' && !e.repeat && performance.now() > menuReadyAt) { e.preventDefault(); start(); }
+  // La partida solo empieza con el botón Jugar (ni Enter ni espacio la inician)
 });
 window.addEventListener('keyup', (e) => {
   if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = false;
@@ -606,7 +605,7 @@ playerInput.addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
   e.preventDefault();
   if (mode === 'over' && current && !current.saved) commitScore();
-  else { playerInput.blur(); start(); }
+  else playerInput.blur();
 });
 
 function start() {
@@ -1581,7 +1580,7 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
-playBtn.addEventListener('click', start);
+playBtn.addEventListener('click', () => start());
 
 recoverDraft();
 renderRanking();

@@ -124,6 +124,7 @@ renderSoundBtn();
 const keys = { left: false, right: false };
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement) return; // escribiendo el nombre
+  if (e.target instanceof HTMLButtonElement && (e.key === 'Enter' || e.key === ' ')) return; // el botón ya hace lo suyo
   if (!splash.hidden) {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); closeSplash(); }
     return;
@@ -270,7 +271,28 @@ const RANK_SHOW = 10;  // jugadores visibles
 const playerInput = $('player');
 const rankingEl = $('ranking');
 const savedEl = $('saved');
-const introEl = $('intro');
+const resultEl = $('result');
+// Pestañas: Ranking mundial / Cómo jugar
+const TAB_IDS = ['ranking', 'howto'];
+function selectTab(id, focus) {
+  for (const t of TAB_IDS) {
+    const btn = $('tabBtn-' + t), on = t === id;
+    btn.setAttribute('aria-selected', on);
+    btn.tabIndex = on ? 0 : -1;
+    $('tab-' + t).hidden = !on;
+    if (on && focus) btn.focus();
+  }
+}
+for (const t of TAB_IDS) {
+  const btn = $('tabBtn-' + t);
+  btn.addEventListener('click', () => selectTab(t));
+  btn.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault(); e.stopPropagation();
+    const i = (TAB_IDS.indexOf(t) + (e.key === 'ArrowRight' ? 1 : TAB_IDS.length - 1)) % TAB_IDS.length;
+    selectTab(TAB_IDS[i], true);
+  });
+}
 const saveBtn = $('save');
 const playerLabel = document.querySelector('label[for="player"]');
 
@@ -620,7 +642,8 @@ function gameOver(reason) {
     saveBtn.hidden = true;
     savedEl.textContent = 'Con 0 m la partida no se guarda en el ranking.';
   }
-  introEl.hidden = true;
+  resultEl.hidden = false;
+  selectTab('ranking');
   renderRanking();
   titleEl.textContent = reason === 'fall' ? '¡Uy, se cayó!' : '¡Ay, ay, ay!';
   messageEl.innerHTML = `Subiste <strong>${m} metros</strong>`;

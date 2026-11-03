@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grandstander:wght@800;900&family=Jost:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="style.css?v=28">
+  <link rel="stylesheet" href="style.css?v=29">
 </head>
 <body>
 <!--GAME-START-->
@@ -49,49 +49,58 @@
 
   <div id="overlay">
     <div class="card">
-      <h1 id="title">¿Cómo jugar?</h1>
-      <p id="message">¡Salta de tablón en tablón y llega tan alto como puedas!</p>
-      <div id="intro" class="panel">
-        <ol class="steps">
-          <li>
-            <span class="step-icon" aria-hidden="true"><img src="icons/icon-192.png" alt="" width="44" height="44"></span>
-            <p>¡Sheepy salta solita! Tú solo tienes que ayudarla a moverse.</p>
-          </li>
-          <li>
-            <span class="step-icon keys" aria-hidden="true"><kbd>←</kbd><kbd>→</kbd></span>
-            <p>Toca el lado izquierdo o derecho de la pantalla para dirigirla. Si juegas en computador, utiliza las flechas <kbd>←</kbd> y <kbd>→</kbd> del teclado.</p>
-          </li>
-          <li>
-            <span class="step-icon bill" aria-hidden="true"><img src="sprites/billete.webp" alt="" width="200" height="100"></span>
-            <p>¡Cuidado con los enemigos y obstáculos del camino! Cada vez que choques con uno, perderás un sendauro, que son tus vidas. Cuanto más alto subas, más aparecerán.</p>
-          </li>
-          <li>
-            <span class="step-icon star" aria-hidden="true">★</span>
-            <p>Atrapa los premios que encuentres: algunos te protegen, otros te impulsan hacia arriba y otros te devuelven vidas.</p>
-          </li>
-        </ol>
-        <p class="cta">¡Prepárate para saltar, esquivar y llegar a lo más alto!</p>
+      <h1 class="menu-logo" aria-label="Sheepy Jump"><span class="w1">Sheepy</span> <span class="w2">Jump</span></h1>
+      <div id="result" hidden>
+        <h2 id="title"></h2>
+        <p id="message"></p>
       </div>
       <div class="panel player-panel">
-      <p id="best"></p>
-      <div class="field">
-        <label for="player">Nombre del jugador</label>
-        <input id="player" type="text" maxlength="16" autocomplete="nickname" enterkeyhint="go" placeholder="Escribe tu nombre" spellcheck="false">
-        <p id="saved" class="hint"></p>
+        <p id="best"></p>
+        <div class="field">
+          <label for="player">Nombre del jugador</label>
+          <input id="player" type="text" maxlength="16" autocomplete="nickname" enterkeyhint="go" placeholder="Escribe tu nombre" spellcheck="false">
+          <p id="saved" class="hint"></p>
+        </div>
+        <button id="save" type="button" hidden>Guardar puntuación</button>
+        <button id="play" type="button">Jugar</button>
       </div>
-      <button id="save" type="button" hidden>Guardar puntuación</button>
-      <button id="play" type="button">Jugar</button>
-      </div>
-      <section class="panel ranking" aria-labelledby="rankingTitle">
-        <h2 id="rankingTitle">Ranking mundial</h2>
-        <div id="ranking"></div>
+      <section class="panel tabs-panel">
+        <div class="tabbar" role="tablist" aria-label="Ranking y cómo jugar">
+          <button type="button" role="tab" id="tabBtn-ranking" aria-controls="tab-ranking" aria-selected="true">Ranking mundial</button>
+          <button type="button" role="tab" id="tabBtn-howto" aria-controls="tab-howto" aria-selected="false" tabindex="-1">Cómo jugar</button>
+        </div>
+        <div id="tab-ranking" class="tab-page" role="tabpanel" aria-labelledby="tabBtn-ranking">
+          <div id="ranking"></div>
+        </div>
+        <div id="tab-howto" class="tab-page" role="tabpanel" aria-labelledby="tabBtn-howto" hidden>
+          <p class="howto-lead">¡Salta de tablón en tablón y llega tan alto como puedas!</p>
+          <ol class="steps">
+            <li>
+              <span class="step-icon" aria-hidden="true"><img src="icons/icon-192.png" alt="" width="44" height="44"></span>
+              <p>¡Sheepy salta solita! Tú solo tienes que ayudarla a moverse.</p>
+            </li>
+            <li>
+              <span class="step-icon keys" aria-hidden="true"><kbd>←</kbd><kbd>→</kbd></span>
+              <p>Toca el lado izquierdo o derecho de la pantalla para dirigirla. Si juegas en computador, utiliza las flechas <kbd>←</kbd> y <kbd>→</kbd> del teclado.</p>
+            </li>
+            <li>
+              <span class="step-icon bill" aria-hidden="true"><img src="sprites/billete.webp" alt="" width="200" height="100"></span>
+              <p>¡Cuidado con los enemigos y obstáculos del camino! Cada vez que choques con uno, perderás un sendauro, que son tus vidas. Cuanto más alto subas, más aparecerán.</p>
+            </li>
+            <li>
+              <span class="step-icon star" aria-hidden="true">★</span>
+              <p>Atrapa los premios que encuentres: algunos te protegen, otros te impulsan hacia arriba y otros te devuelven vidas.</p>
+            </li>
+          </ol>
+          <p class="cta">¡Prepárate para saltar, esquivar y llegar a lo más alto!</p>
+        </div>
       </section>
 <!--GAME-END-->
     </div>
   </div>
 
-  <script src="config.js?v=28"></script>
-  <script src="game.js?v=28"></script>
+  <script src="config.js?v=29"></script>
+  <script src="game.js?v=29"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));

@@ -538,3 +538,52 @@ kbd {
   100% { transform: scale(0.9) translateY(-20px); opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) { #announce.show span { animation: none; } }
+
+/* ---------- Menú: logo, jugador y pestañas ---------- */
+#overlay .menu-logo {
+  font-family: var(--display); font-weight: 900;
+  font-size: clamp(3rem, 15vw, 4.4rem);
+  line-height: 0.95; text-align: center;
+  -webkit-text-stroke: 3px var(--line); paint-order: stroke fill;
+  text-shadow: 0 6px 0 var(--line);
+  margin-top: 6px;
+}
+.menu-logo .w1 { color: #ff7751; }
+.menu-logo .w2 { color: #ffc33e; }
+#result { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
+#result[hidden] { display: none; }
+#title {
+  font-family: var(--display); font-weight: 900;
+  font-size: clamp(1.8rem, 8vw, 2.3rem); line-height: 1.05;
+  color: #fff;
+  -webkit-text-stroke: 2px var(--line); paint-order: stroke fill;
+  text-shadow: 0 4px 0 var(--line);
+}
+.tabs-panel { align-items: stretch; padding: 12px 18px 18px; gap: 16px; }
+.tabbar {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  padding: 5px;
+  background: #efe9de;
+  border: 3px solid var(--line);
+  border-radius: 16px;
+}
+.tabbar button {
+  font-family: var(--display); font-weight: 900;
+  font-size: 1.05rem; letter-spacing: 0.02em;
+  padding: 8px 6px;
+  border-radius: 11px;
+  background: transparent; color: var(--muted);
+  transition: background 0.15s, color 0.15s;
+}
+.tabbar button[aria-selected="true"] {
+  background: var(--coral); color: #fff;
+  box-shadow: 0 3px 0 var(--line);
+  -webkit-text-stroke: 1px var(--line); paint-order: stroke fill;
+}
+.tabbar button:not([aria-selected="true"]):hover { color: var(--ink); }
+.tab-page { display: flex; flex-direction: column; gap: 14px; }
+.tab-page[hidden] { display: none; }
+#tab-howto { align-items: center; }
+.howto-lead { font-family: var(--display); font-weight: 900; font-size: 1.2rem; line-height: 1.25; text-align: center; color: var(--ink); text-wrap: balance; }
+.tabbar button { white-space: nowrap; font-size: clamp(0.88rem, 4.1vw, 1.05rem); padding-inline: 4px; }
+#tab-ranking { text-align: left; }

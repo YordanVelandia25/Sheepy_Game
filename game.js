@@ -55,6 +55,9 @@ const JESUS_FROM_M = 60;   // Jesús sobre un tablón (poco frecuente): no hace 
 const JESUS_H = 74;
 const FLIP_FROM_M = 300;   // chancleta voladora: cruza la pantalla de lado a lado (poco frecuente)
 const FLIP_WARN = 1.1;     // segundos de aviso antes de que entre
+const STAR_FROM_M = 600;   // estrella fugaz: misma mecánica que la chancleta (poco frecuente)
+const GLASSES_FROM_M = 150; // anteojos: distorsionan la vista un rato (poco frecuentes)
+const GLASSES_TIME = 6;
 const SPRING_M = 30;       // resorte en los tablones: impulsa 30 m (desde el inicio, frecuente)
 const SPRING_CHANCE = 0.08;
 const SPRING_V = Math.sqrt(2 * GRAVITY * SPRING_M * PX_PER_M);
@@ -110,6 +113,7 @@ const sfx = {
   spring: () => { tone('square', 160, 720, 0.28, 0.06); tone('sine', 220, 990, 0.32, 0.1); },
   alert: () => { tone('square', 880, 660, 0.12, 0.06); setTimeout(() => tone('square', 880, 660, 0.12, 0.06), 160); },
   cheer: () => { tone('sine', 523, 523, 0.12, 0.07); setTimeout(() => tone('sine', 659, 659, 0.12, 0.07), 110); setTimeout(() => tone('sine', 784, 784, 0.2, 0.07), 220); },
+  wobble: () => { tone('sine', 500, 260, 0.35, 0.08); setTimeout(() => tone('sine', 420, 640, 0.35, 0.06), 180); },
   heal: () => { tone('sine', 660, 880, 0.1, 0.1); setTimeout(() => tone('sine', 880, 1320, 0.16, 0.1), 90); },
 };
 function renderSoundBtn() {
@@ -155,7 +159,7 @@ function inputDir() {
 // ---------- Estado ----------
 let mode = 'menu'; // menu | play | over
 let sheep, bars, foes, parts, camY, topY, maxY, hearts, inv, time, newRecordShown, nextHeartM;
-let shield, boost, nextShieldM, nextHatM, nextFlipM, nextJesusM;
+let shield, boost, nextShieldM, nextHatM, nextFlipM, nextJesusM, nextStarM, nextGlassesM, blurry;
 let best = Number(safeGet('best-m') || 0);
 
 const clouds = Array.from({ length: 5 }, () => ({
@@ -181,6 +185,9 @@ function reset() {
   nextHatM = HAT_FROM_M + Math.random() * 80;
   nextFlipM = FLIP_FROM_M + Math.random() * 80;
   nextJesusM = JESUS_FROM_M + Math.random() * 90;
+  nextStarM = STAR_FROM_M + Math.random() * 80;
+  nextGlassesM = GLASSES_FROM_M + Math.random() * 80;
+  blurry = 0;
   sheepSay = null;
   inv = 0;
   time = 0;
@@ -218,6 +225,7 @@ function genBar() {
     }
     if (!prize && m >= HAT_FROM_M && m >= nextHatM && Math.random() < 0.03) { prize = 'hat'; nextHatM = m + 180 + Math.random() * 120; }
     else if (!prize && m >= SHIELD_FROM_M && m >= nextShieldM && Math.random() < 0.035) { prize = 'shield'; nextShieldM = m + 110 + Math.random() * 90; }
+    else if (!prize && m >= GLASSES_FROM_M && m >= nextGlassesM && Math.random() < 0.035) { prize = 'glasses'; nextGlassesM = m + 180 + Math.random() * 170; }
   }
   if (prize) foes.push({ kind: prize, bar, off: w / 2, x: 0, y: 0, r: 16, t: Math.random() * 6 });
   // Jesús: de pie en un tablón normal y ancho, en un extremo para que Sheepy pueda caer a su lado
@@ -646,6 +654,7 @@ const LOSS_PHRASES = {
   bat: ['¡Un murciélago la asustó!', '¡Mordisco nocturno!', '¡Ese murciélago no veía nada!', '¡Ataque desde la oscuridad!'],
   thorn: ['¡Cardos y lana no combinan!', '¡Pinchazo de cardo!', '¡Aterrizó en un cardo!', '¡Ese cardo estaba de malas!'],
   spike: ['¡Auch, pinchos!', '¡Esos pinchos no eran de adorno!', '¡Pinchada sin piedad!', '¡Mala idea pisar ahí!'],
+  star: ['¡Te alcanzó la estrella fugaz!', '¡Pide un deseo… la próxima vez!', '¡Qué estrellazo!', '¡Brilló demasiado cerca!'],
   flip: ['¡Chanclazo!', '¡La chancleta voladora no perdona!', '¡Llegó la chancla!', '¡Nadie esquiva la chancla!'],
   hit: ['¡Ay, ay, ay!'],
 };
@@ -659,6 +668,7 @@ function lossPhrase(reason) {
 
 function gameOver(reason) {
   mode = 'over';
+  blurry = 0;
   const m = meters();
   const isRecord = m > best;
   if (isRecord) { best = m; safeSet('best-m', best); }
@@ -699,16 +709,21 @@ function hurt(cause) {
 // ---------- Chancleta voladora ----------
 let sheepSay = null; // globo de diálogo que sale de Sheepy: { text, t, dur }
 const SAY_TIME = 2.4;
-function spawnFlip() {
+// Cruzan la pantalla de lado a lado con aviso: chancleta voladora y estrella fugaz
+const CROSSERS = new Set(['flip', 'star']);
+function spawnCrosser(kind) {
   const dir = Math.random() < 0.5 ? 1 : -1;
   const sy = Math.min(Math.max(sheep.y - camY - 30 - Math.random() * 60, 140), GH - 220);
-  const spd = 230 + Math.min(meters() / 2000, 1) * 120;
-  foes.push({ kind: 'flip', x: dir > 0 ? -45 : GW + 45, y: camY + sy, sy, vx: dir * spd, warn: FLIP_WARN, t: 0, r: 15 });
-  showAnnounce('¡Una Chancleta Voladora!');
+  const k = Math.min(meters() / 2000, 1);
+  const spd = kind === 'star' ? 300 + k * 120 : 230 + k * 120;
+  const vsy = kind === 'star' ? 40 + Math.random() * 40 : 0;   // la estrella cae un poco en diagonal
+  foes.push({ kind, x: dir > 0 ? -45 : GW + 45, y: camY + sy, sy, vsy, vx: dir * spd, warn: FLIP_WARN, t: 0, r: kind === 'star' ? 14 : 15 });
+  showAnnounce(kind === 'star' ? '¡Una Estrella Fugaz!' : '¡Una Chancleta Voladora!');
   sfx.alert();
 }
-function showAnnounce(text) {
-  sheepSay = { text, t: SAY_TIME, dur: SAY_TIME };
+function spawnFlip() { spawnCrosser('flip'); }
+function showAnnounce(text, color) {
+  sheepSay = { text, t: SAY_TIME, dur: SAY_TIME, color };
   speak(text.replace(/[¡!]/g, ''));
 }
 // Voz del anuncio con la síntesis de voz del navegador (sin archivos de audio)
@@ -761,7 +776,7 @@ function cheer(f) {
   f.sayT = 3.5;
 }
 
-const PRIZES = new Set(['heart', 'shield', 'hat']);
+const PRIZES = new Set(['heart', 'shield', 'hat', 'glasses']);
 function collectPrize(f) {
   f.taken = true;
   puff(f.x, f.y, '#ffffff', 6, 110);
@@ -775,6 +790,11 @@ function collectPrize(f) {
     shield = SHIELD_TIME;
     puff(f.x, f.y, '#7fd3ff', 12, 160);
     sfx.shield();
+  } else if (f.kind === 'glasses') {
+    blurry = GLASSES_TIME;
+    puff(f.x, f.y, '#c9b8ff', 12, 150);
+    sfx.wobble();
+    showAnnounce('¡Uy, el ojólogo!', '#6b4fd8');
   } else if (f.kind === 'hat') {
     boost = { toY: Math.min(sheep.y, f.y) - HAT_BOOST_M * PX_PER_M, t: 0 };
     puff(f.x, f.y, '#ffc33e', 12, 160);
@@ -832,6 +852,7 @@ function update(dt) {
   if (inv > 0) inv -= dt;
   if (shield > 0) shield = Math.max(0, shield - dt);
   if (sheepSay && (sheepSay.t -= dt) <= 0) sheepSay = null;
+  if (blurry > 0) blurry = Math.max(0, blurry - dt);
 
   for (const b of bars) {
     if (b.type === 'moving') {
@@ -886,11 +907,12 @@ function update(dt) {
       if (f.x < 18) { f.x = 18; f.vx *= -1; }
       if (f.x > GW - 18) { f.x = GW - 18; f.vx *= -1; }
       f.y = f.baseY + Math.sin(f.t * 4) * 9 + Math.sin(f.t * 1.7) * 6;
-    } else if (f.kind === 'flip') {
+    } else if (CROSSERS.has(f.kind)) {
       f.y = camY + f.sy;
       if (f.warn > 0) { f.warn -= dt; continue; }   // aún avisando: no se mueve ni hace daño
       f.t += dt;
       f.x += f.vx * dt;
+      f.sy += (f.vsy || 0) * dt;
       if ((f.vx > 0 && f.x > GW + 60) || (f.vx < 0 && f.x < -60)) { f.gone = true; continue; }
     } else if (f.kind === 'jesus') {
       f.t += dt;
@@ -941,9 +963,13 @@ function update(dt) {
   }
 
   // Chancleta voladora: de vez en cuando cruza la pantalla con aviso y anuncio
-  if (meters() >= nextFlipM && !boost) {
+  const crossing = foes.some((f) => CROSSERS.has(f.kind));
+  if (meters() >= nextFlipM && !boost && !crossing) {
     nextFlipM = meters() + 170 + Math.random() * 160;
-    spawnFlip();
+    spawnCrosser('flip');
+  } else if (meters() >= nextStarM && !boost && !crossing) {
+    nextStarM = meters() + 200 + Math.random() * 200;
+    spawnCrosser('star');
   }
 
   // Generar y limpiar
@@ -1466,6 +1492,93 @@ function drawBat(f) {
   ctx.restore();
 }
 // Chancleta voladora (vista desde arriba): gira mientras cruza; antes de entrar, aviso en el borde
+function drawCrossWarn(f) {
+  if (Math.floor(f.warn * 6) % 2 === 0) return;
+  const x = f.vx > 0 ? 18 : GW - 18;
+  ctx.save();
+  ctx.translate(x, f.y);
+  ctx.fillStyle = f.kind === 'star' ? '#ffc33e' : '#ff7751'; ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2.5; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(14, 11); ctx.lineTo(-14, 11); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = f.kind === 'star' ? OUTLINE : '#ffffff'; ctx.font = '900 16px Grandstander, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('!', 0, 3);
+  ctx.restore();
+}
+// Estrella fugaz: estrella amarilla con carita que gira, con una cola de brillos
+function starPath(r1, r2) {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5, r = i % 2 ? r2 : r1;
+    ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+  }
+  ctx.closePath();
+}
+function drawShootingStar(f) {
+  if (f.warn > 0) { drawCrossWarn(f); return; }
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  const back = f.vx > 0 ? -1 : 1, rise = -(f.vsy || 0) / Math.abs(f.vx); // la cola apunta hacia atrás y arriba
+  // Cola
+  const ex = back * 80, ey = rise * 80;
+  const g = ctx.createLinearGradient(0, 0, ex, ey);
+  g.addColorStop(0, 'rgba(255, 228, 120, 0.95)'); g.addColorStop(1, 'rgba(255, 228, 120, 0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(ex, ey - 2); ctx.lineTo(ex, ey + 2); ctx.lineTo(0, 10); ctx.closePath(); ctx.fill();
+  for (let i = 1; i <= 4; i++) {
+    const d = 16 + i * 14;
+    ctx.fillStyle = `rgba(255,255,255,${0.9 - i * 0.18})`;
+    ctx.beginPath(); ctx.arc(back * d, rise * d + Math.sin(f.t * 20 + i) * 4, 3 - i * 0.4, 0, Math.PI * 2); ctx.fill();
+  }
+  // Estrella
+  ctx.rotate(f.t * 5 * Math.sign(f.vx));
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2.2; ctx.lineJoin = 'round';
+  starPath(16, 7.5); ctx.fillStyle = '#ffd23f'; ctx.fill(); ctx.stroke();
+  starPath(9, 4.5); ctx.fillStyle = '#fff1a8'; ctx.fill();
+  ctx.fillStyle = OUTLINE;
+  ctx.beginPath(); ctx.arc(-3, -1, 1.5, 0, Math.PI * 2); ctx.arc(3, -1, 1.5, 0, Math.PI * 2); ctx.fill();
+  ctx.lineWidth = 1.3; ctx.beginPath(); ctx.arc(0, 1.5, 2.6, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+  ctx.restore();
+}
+// Anteojos: al tomarlos la vista se distorsiona un rato
+function drawGlassesPrize(f) {
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  prizeGlow(f, 24, 18);
+  ctx.rotate(Math.sin(f.t * 2.4) * 0.15);
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  // Patillas y puente
+  ctx.beginPath(); ctx.moveTo(-19, -3); ctx.lineTo(-23, -6); ctx.moveTo(19, -3); ctx.lineTo(23, -6); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-4, -2); ctx.quadraticCurveTo(0, -6, 4, -2); ctx.stroke();
+  for (const dx of [-11, 11]) {
+    ctx.fillStyle = '#d9f3ff';
+    ctx.beginPath(); ctx.arc(dx, 0, 8, 0, Math.PI * 2); ctx.fill();
+    // Remolino que gira dentro del lente
+    ctx.save(); ctx.beginPath(); ctx.arc(dx, 0, 8, 0, Math.PI * 2); ctx.clip();
+    ctx.strokeStyle = '#7c5cff'; ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    for (let a = 0; a < Math.PI * 5; a += 0.3) { const r = a * 0.5; ctx.lineTo(dx + Math.cos(a + f.t * 4) * r, Math.sin(a + f.t * 4) * r); }
+    ctx.stroke(); ctx.restore();
+    ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.arc(dx, 0, 8, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = '#7c5cff'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(dx, 0, 6.3, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.beginPath(); ctx.ellipse(-14, -3, 2, 1.2, -0.6, 0, Math.PI * 2); ctx.ellipse(8, -3, 2, 1.2, -0.6, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+// Distorsión de la vista (anteojos): borroso, colores raros y el mundo se tambalea
+let lastFilter = '';
+function blurAmount() {
+  if (blurry <= 0) return 0;
+  return Math.min(1, blurry / 0.8, (GLASSES_TIME - blurry) / 0.5);
+}
+function applyBlurFilter() {
+  const k = blurAmount();
+  const f = k > 0.01 ? `blur(${(1.6 * k).toFixed(2)}px) saturate(${(1 + 0.7 * k).toFixed(2)}) hue-rotate(${Math.round(Math.sin(time * 1.6) * 35 * k)}deg)` : '';
+  if (f !== lastFilter) { canvas.style.filter = f; lastFilter = f; }
+  return k;
+}
+
 function drawFlip(f) {
   if (f.warn > 0) {
     if (Math.floor(f.warn * 6) % 2 === 0) return;
@@ -1563,7 +1676,7 @@ function drawSheepSay() {
   const { text, t, dur } = sheepSay;
   const pop = Math.min(1, (dur - t) / 0.15);
   drawBubble(text, sheep.x, sheep.y - SHEEP_H - 2 - (1 - pop) * 6, Math.min(1, t / 0.35, pop + 0.2),
-    { size: 11.5, maxW: 120, padX: 9, padY: 6, line: 2, color: '#d9452b' });
+    { size: 11.5, maxW: 120, padX: 9, padY: 6, line: 2, color: sheepSay.color || '#d9452b' });
 }
 
 // Resorte sobre el tablón: no hace daño, lanza a Sheepy 30 m
@@ -1645,6 +1758,15 @@ function draw() {
   drawGround();
 
   ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * offX, -dpr * camY * scale);
+  const wob = applyBlurFilter();
+  if (wob > 0) {
+    const cx = GW / 2, cy = camY + GH / 2;
+    ctx.translate(cx, cy);
+    ctx.rotate(Math.sin(time * 1.7) * 0.05 * wob);
+    ctx.scale(1 + Math.sin(time * 2.3) * 0.06 * wob, 1 + Math.cos(time * 1.9) * 0.06 * wob);
+    ctx.transform(1, 0, Math.sin(time * 1.3) * 0.08 * wob, 1, 0, 0);
+    ctx.translate(-cx, -cy);
+  }
   for (const b of bars) drawBar(b);
   for (const f of foes) FOE_DRAW[f.kind](f);
   for (const p of parts) {
@@ -1670,7 +1792,7 @@ function draw() {
   }
 }
 
-const FOE_DRAW = { bee: drawBee, bat: drawBat, thorn: drawThorn, spike: drawSpike, spring: drawSpring, flip: drawFlip, jesus: drawJesus, heart: drawHeart, shield: drawShieldPrize, hat: drawHatPrize };
+const FOE_DRAW = { bee: drawBee, bat: drawBat, thorn: drawThorn, spike: drawSpike, spring: drawSpring, flip: drawFlip, jesus: drawJesus, star: drawShootingStar, glasses: drawGlassesPrize, heart: drawHeart, shield: drawShieldPrize, hat: drawHatPrize };
 
 // ---------- Bucle ----------
 let last = performance.now();

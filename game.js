@@ -44,7 +44,7 @@ const BEES_FROM_M = 201;   // 100–200 m: solo cardos; desde 201 m también abe
 const HEART_FROM_M = 350;  // billete Un Sendauro (devuelve una vida): desde 350 m…
 const HEART_EVERY_M = 200; // …cada 200 m hay una oportunidad…
 const HEART_CHANCE = 0.5;  // …con 50 % de probabilidad de que salga
-const SHIELD_FROM_M = 201; // escudo: 5 s sin recibir daño (poco frecuente)
+const SHIELD_FROM_M = 20;  // escudo: 5 s sin recibir daño (frecuente, desde el inicio)
 const SHIELD_TIME = 5;
 const SPIKES_FROM_M = 300; // pinchos en los tablones (como los cardos)
 const BATS_FROM_M = 450;   // murciélagos (como las abejas)
@@ -181,7 +181,7 @@ function reset() {
   nextHeartM = HEART_FROM_M;
   shield = 0;
   boost = null;
-  nextShieldM = SHIELD_FROM_M + Math.random() * 60;
+  nextShieldM = SHIELD_FROM_M + Math.random() * 40;
   nextHatM = HAT_FROM_M + Math.random() * 80;
   nextFlipM = FLIP_FROM_M + Math.random() * 80;
   nextJesusM = JESUS_FROM_M + Math.random() * 90;
@@ -224,7 +224,7 @@ function genBar() {
       if (Math.random() < HEART_CHANCE) prize = 'heart';
     }
     if (!prize && m >= HAT_FROM_M && m >= nextHatM && Math.random() < 0.03) { prize = 'hat'; nextHatM = m + 180 + Math.random() * 120; }
-    else if (!prize && m >= SHIELD_FROM_M && m >= nextShieldM && Math.random() < 0.035) { prize = 'shield'; nextShieldM = m + 110 + Math.random() * 90; }
+    else if (!prize && m >= SHIELD_FROM_M && m >= nextShieldM && Math.random() < 0.08) { prize = 'shield'; nextShieldM = m + 55 + Math.random() * 55; }
     else if (!prize && m >= GLASSES_FROM_M && m >= nextGlassesM && Math.random() < 0.035) { prize = 'glasses'; nextGlassesM = m + 180 + Math.random() * 170; }
   }
   if (prize) foes.push({ kind: prize, bar, off: w / 2, x: 0, y: 0, r: 16, t: Math.random() * 6 });

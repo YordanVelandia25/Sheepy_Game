@@ -60,6 +60,7 @@ const GLASSES_FROM_M = 150; // anteojos: distorsionan la vista un rato (poco fre
 const GLASSES_TIME = 6;
 const SPRING_M = 30;       // resorte en los tablones: impulsa 30 m (desde el inicio, frecuente)
 const SPRING_CHANCE = 0.08;
+const SPRING_SHIELD_CHANCE = 0.4; // 40 % de los resortes llevan un escudo flotando en su trayectoria
 const SPRING_V = Math.sqrt(2 * GRAVITY * SPRING_M * PX_PER_M);
 
 // ---------- Pantalla ----------
@@ -249,6 +250,14 @@ function genBar() {
   if (!occupied && type !== 'fragile' && m > 8 && Math.random() < SPRING_CHANCE) {
     bar.spring = { kind: 'spring', bar, off, x: 0, y: 0, r: 0, squish: 0 };
     foes.push(bar.spring);
+    // A veces hay un escudo flotando justo encima del resorte (entre 6 y 14 m),
+    // para atraparlo en el salto y subir protegida
+    if (m >= 20 && Math.random() < SPRING_SHIELD_CHANCE) {
+      const sx = Math.min(Math.max(x + off, 24), GW - 24);
+      const fy = y - (6 + Math.random() * 8) * PX_PER_M;
+      foes.push({ kind: 'shield', bar: null, fx: sx, fy, x: sx, y: fy, r: 16, t: Math.random() * 6 });
+      nextShieldM = Math.max(nextShieldM, m + 30); // que no salga otro escudo normal enseguida
+    }
   } else if (!occupied && type === 'normal' && w > 70) {
     if (m >= SPIKES_FROM_M && Math.random() < 0.05 + 0.1 * spikeD) foes.push({ kind: 'spike', bar, off, x: 0, y: 0, r: 12 });
     else if (m >= SAFE_M && Math.random() < 0.08 + 0.14 * thornD) foes.push({ kind: 'thorn', bar, off, x: 0, y: 0, r: 12 });
@@ -927,8 +936,8 @@ function update(dt) {
       continue;
     } else if (PRIZES.has(f.kind)) {
       f.t += dt;
-      f.x = f.bar.x + f.off;
-      f.y = f.bar.y - 34 + Math.sin(f.t * 3) * 4;
+      if (f.bar) { f.x = f.bar.x + f.off; f.y = f.bar.y - 34 + Math.sin(f.t * 3) * 4; }
+      else { f.x = f.fx; f.y = f.fy + Math.sin(f.t * 3) * 4; }   // flotando sobre un resorte
       if (playing && !f.taken) {
         const dx = f.x - sheep.x, dy = f.y - (sheep.y - SHEEP_H * 0.5);
         if (dx * dx + dy * dy < (f.r + SHEEP_W * 0.45) ** 2) collectPrize(f);

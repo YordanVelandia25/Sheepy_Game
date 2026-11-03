@@ -37,6 +37,7 @@ const JUMP = 830;        // fuerza del rebote (altura máx. ≈ 230)
 const MOVE = 320;        // velocidad lateral
 const PX_PER_M = 40;     // unidades por metro
 const MAX_HEARTS = 3;
+const BONUS_HEARTS = 4; // solo el tablón de Jesús da el cuarto sendauro
 // Progresión de obstáculos y premios (en metros)
 const SAFE_M = 100;        // 0–99 m: sin obstáculos
 const BEES_FROM_M = 201;   // 100–200 m: solo cardos; desde 201 m también abejas
@@ -250,17 +251,18 @@ function genBar() {
 function updateHud() {
   metersEl.textContent = `${meters()} m`;
   bestHudEl.textContent = best ? `Récord ${best} m` : '';
-  // Vidas: un billete "Un Sendauro" por vida; las perdidas se ven grises
-  if (heartsEl.children.length !== MAX_HEARTS) {
-    heartsEl.innerHTML = '';
-    for (let i = 0; i < MAX_HEARTS; i++) {
-      const im = document.createElement('img');
-      im.src = 'sprites/billete.webp'; im.alt = ''; im.width = 200; im.height = 100;
-      heartsEl.appendChild(im);
-    }
+  // Vidas: un billete "Un Sendauro" por vida; las perdidas se ven grises.
+  // El cuarto (solo con Jesús) aparece aparte, con resplandor dorado.
+  const slots = Math.max(MAX_HEARTS, hearts);
+  while (heartsEl.children.length < slots) {
+    const im = document.createElement('img');
+    im.src = 'sprites/billete.webp'; im.alt = ''; im.width = 200; im.height = 100;
+    if (heartsEl.children.length >= MAX_HEARTS) im.className = 'bonus';
+    heartsEl.appendChild(im);
   }
+  while (heartsEl.children.length > slots) heartsEl.lastElementChild.remove();
   [...heartsEl.children].forEach((im, i) => im.classList.toggle('lost', i >= hearts));
-  heartsEl.setAttribute('aria-label', `Vidas: ${hearts} de ${MAX_HEARTS}`);
+  heartsEl.setAttribute('aria-label', `Vidas: ${hearts} de ${slots}`);
 }
 
 function puff(x, y, color, n = 6, spd = 120) {
@@ -755,6 +757,14 @@ function cheer(f) {
     const opts = CHEERS.filter((c) => c !== lastCheer);
     f.say = lastCheer = opts[Math.floor(Math.random() * opts.length)];
     sfx.cheer();
+    // Regalo: un sendauro extra (aunque ya tenga 3; máximo 4)
+    if (hearts < BONUS_HEARTS) {
+      hearts++;
+      updateHud();
+      heartsEl.classList.remove('gain'); void heartsEl.offsetWidth; heartsEl.classList.add('gain');
+    }
+    puff(f.x, f.y - JESUS_H * 0.6, '#ffd23f', 14, 170);
+    puff(f.x, f.y - JESUS_H * 0.6, '#ffffff', 8, 120);
   }
   f.sayT = 3.5;
 }

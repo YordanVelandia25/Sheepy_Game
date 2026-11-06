@@ -272,7 +272,7 @@ function genBar() {
       nextHatM = m + 180 + Math.random() * 120;
     }
     else if (!prize && m >= SHIELD_FROM_M && m >= nextShieldM && Math.random() < 0.08) { prize = 'shield'; nextShieldM = m + (m >= HEAVEN_FROM_M ? 150 : 55) + Math.random() * 55; }
-    else if (!prize && m >= GLASSES_FROM_M && m >= nextGlassesM && Math.random() < 0.035) { prize = 'glasses'; nextGlassesM = m + 180 + Math.random() * 170; }
+    else if (!prize && m >= GLASSES_FROM_M && m >= nextGlassesM && Math.random() < 0.07) { prize = 'glasses'; nextGlassesM = m + 90 + Math.random() * 90; }
   }
   if (prize) foes.push({ kind: prize, bar, off: w / 2, x: 0, y: 0, r: 16, t: Math.random() * 6 });
   // Jesús: de pie en un tablón normal y ancho, en un extremo para que Sheepy pueda caer a su lado
@@ -741,6 +741,7 @@ function lossPhrase(reason) {
 
 function gameOver(reason) {
   mode = 'over';
+  speak('Ay, ay, la murición');
   blurry = 0;
   trapped = 0; wind = null; fog = null;
   const m = meters();
@@ -869,7 +870,7 @@ function collectPrize(f) {
     blurry = GLASSES_TIME;
     puff(f.x, f.y, '#c9b8ff', 12, 150);
     sfx.wobble();
-    showAnnounce('¡Uy, el ojólogo!', '#6b4fd8');
+    showAnnounce('¡Ay, necesito un ojólogo!', '#6b4fd8');
   } else if (f.kind === 'hat' || f.kind === 'rocket' || f.kind === 'wings') {
     boost = { toY: Math.min(sheep.y, f.y) - HAT_BOOST_M * PX_PER_M, t: 0, style: f.kind };
     trapped = 0;

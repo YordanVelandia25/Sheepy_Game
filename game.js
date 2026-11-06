@@ -47,20 +47,25 @@ const BONUS_HEARTS = 4; // solo el tablón de Jesús da el cuarto sendauro
 const SAFE_M = 100;        // 0–99 m: sin obstáculos
 const BEES_FROM_M = 201;   // 100–200 m: solo cardos; desde 201 m también abejas
 const HEART_FROM_M = 350;  // billete Un Sendauro (devuelve una vida): desde 350 m…
-const HEART_EVERY_M = 200; // …cada 200 m hay una oportunidad…
-const HEART_CHANCE = 0.5;  // …con 50 % de probabilidad de que salga
+const HEART_EVERY_M = 150; // …cada 150 m hay una oportunidad…
+const HEART_CHANCE = 0.6;  // …con 60 % de probabilidad de que salga
 const SHIELD_FROM_M = 20;  // escudo: 5 s sin recibir daño (frecuente, desde el inicio)
 const SHIELD_TIME = 5;
 const SPIKES_FROM_M = 300; // pinchos en los tablones (como los cardos)
 const BATS_FROM_M = 450;   // murciélagos (como las abejas)
-const HAT_FROM_M = 350;    // gorrito con hélice: impulsa a Sheepy 50 m (poco frecuente)
+const HAT_FROM_M = 350;    // impulso: gorrito (<1000 m), mochila cohete (1000–2000 m), alas de ángel (>2000 m)
+const HOLE_SPACING_M = 70; // agujeros negros (1000–2000 m): atraen a Sheepy sin hacerle daño
+const HOLE_R = 120, HOLE_PULL = 150;
+const BUBBLE_TIME = 2.4;   // burbujas (>2000 m): Sheepy queda flotando un momento
+const WIND_TIME = 3.2;     // ráfagas de viento (>2000 m): empujan a Sheepy hacia un lado
+const WIND_PUSH = 170;    // gorrito con hélice: impulsa a Sheepy 50 m (poco frecuente)
 const HAT_BOOST_M = 50;
 const HAT_SPEED = 1150;
 const JESUS_FROM_M = 60;   // Jesús sobre un tablón (poco frecuente): no hace daño ni da premio, anima a Sheepy
 const JESUS_H = 74;
 const FLIP_FROM_M = 300;   // chancleta voladora: cruza la pantalla de lado a lado (poco frecuente)
 const FLIP_WARN = 1.1;     // segundos de aviso antes de que entre
-const STAR_FROM_M = 600;   // estrella fugaz: misma mecánica que la chancleta (poco frecuente)
+const STAR_FROM_M = 1000;  // estrella fugaz: solo en el espacio (1000–2000 m), como la chancleta
 const GLASSES_FROM_M = 150; // anteojos: distorsionan la vista un rato (poco frecuentes)
 const GLASSES_TIME = 6;
 const SPRING_M = 30;       // resorte en los tablones: impulsa 30 m (desde el inicio, frecuente)
@@ -120,6 +125,9 @@ const sfx = {
   alert: () => { tone('square', 880, 660, 0.12, 0.06); setTimeout(() => tone('square', 880, 660, 0.12, 0.06), 160); },
   cheer: () => { tone('sine', 523, 523, 0.12, 0.07); setTimeout(() => tone('sine', 659, 659, 0.12, 0.07), 110); setTimeout(() => tone('sine', 784, 784, 0.2, 0.07), 220); },
   wobble: () => { tone('sine', 500, 260, 0.35, 0.08); setTimeout(() => tone('sine', 420, 640, 0.35, 0.06), 180); },
+  wind: () => { tone('sawtooth', 120, 60, 0.9, 0.03); tone('sine', 300, 180, 0.9, 0.04); },
+  bubble: () => { tone('sine', 300, 900, 0.18, 0.08); },
+  pop: () => { tone('square', 900, 200, 0.08, 0.07); },
   heal: () => { tone('sine', 660, 880, 0.1, 0.1); setTimeout(() => tone('sine', 880, 1320, 0.16, 0.1), 90); },
 };
 function renderSoundBtn() {
@@ -166,6 +174,7 @@ function inputDir() {
 let mode = 'menu'; // menu | play | over
 let sheep, bars, foes, parts, camY, topY, maxY, hearts, inv, time, newRecordShown, nextHeartM;
 let skin = 'classic';
+let trapped = 0, wind = null, nextHoleM, nextWindM;
 let shield, boost, nextShieldM, nextHatM, nextFlipM, nextJesusM, nextStarM, nextGlassesM, blurry;
 let best = Number(safeGet('best-m') || 0);
 
@@ -196,6 +205,9 @@ function reset() {
   nextGlassesM = GLASSES_FROM_M + Math.random() * 80;
   blurry = 0;
   skin = 'classic';
+  trapped = 0; wind = null;
+  nextHoleM = SPACE_FROM_M + 20 + Math.random() * 40;
+  nextWindM = HEAVEN_FROM_M + 60 + Math.random() * 80;
   sheepSay = null;
   inv = 0;
   time = 0;
@@ -233,7 +245,11 @@ function genBar() {
       nextHeartM += HEART_EVERY_M;
       if (Math.random() < HEART_CHANCE) prize = 'heart';
     }
-    if (!prize && m >= HAT_FROM_M && m >= nextHatM && Math.random() < 0.03) { prize = 'hat'; nextHatM = m + 180 + Math.random() * 120; }
+    if (!prize && m >= HAT_FROM_M && m >= nextHatM && Math.random() < 0.03) {
+      const bm = -y / PX_PER_M;
+      prize = bm >= HEAVEN_FROM_M ? 'wings' : bm >= SPACE_FROM_M ? 'rocket' : 'hat';
+      nextHatM = m + 180 + Math.random() * 120;
+    }
     else if (!prize && m >= SHIELD_FROM_M && m >= nextShieldM && Math.random() < 0.08) { prize = 'shield'; nextShieldM = m + 55 + Math.random() * 55; }
     else if (!prize && m >= GLASSES_FROM_M && m >= nextGlassesM && Math.random() < 0.035) { prize = 'glasses'; nextGlassesM = m + 180 + Math.random() * 170; }
   }
@@ -251,11 +267,19 @@ function genBar() {
     kind, x: 20 + Math.random() * (GW - 40), baseY: y + gap / 2, y: y + gap / 2,
     vx: (speed + 70 * dd) * (Math.random() < 0.5 ? -1 : 1), t: Math.random() * 6, r: 13,
   });
-  // (desde 1000 m ya no hay abejas ni murciélagos)
+  // Cada zona tiene sus voladores:
+  //   0–1000 m: abejas y murciélagos · 1000–2000 m: drones y agujeros negros · desde 2000 m: burbujas
   const flyM = -(y + gap / 2) / PX_PER_M;
   if (flyM < SPACE_FROM_M) {
     if (m >= BATS_FROM_M && Math.random() < 0.04 + 0.1 * batD) flyer('bat', batD, 60);
     else if (m >= BEES_FROM_M && Math.random() < 0.06 + 0.16 * beeD) flyer('bee', beeD, 50);
+  } else if (flyM < HEAVEN_FROM_M) {
+    if (flyM >= nextHoleM && Math.random() < 0.12) {
+      nextHoleM = flyM + HOLE_SPACING_M + Math.random() * 60;
+      foes.push({ kind: 'hole', x: 50 + Math.random() * (GW - 100), y: y + gap / 2, baseY: y + gap / 2, t: Math.random() * 6, r: 0 });
+    } else if (Math.random() < 0.2) flyer('drone', 1, 60);
+  } else if (Math.random() < 0.09) {
+    foes.push({ kind: 'bubble', x: 30 + Math.random() * (GW - 60), baseY: y + gap / 2, y: y + gap / 2, vx: (25 + Math.random() * 25) * (Math.random() < 0.5 ? -1 : 1), t: Math.random() * 6, r: 18 });
   }
 
   // En el tablón: resortes desde el inicio, cardos desde 100 m y pinchos desde 300 m (uno por tablón)
@@ -272,7 +296,11 @@ function genBar() {
       nextShieldM = Math.max(nextShieldM, m + 30); // que no salga otro escudo normal enseguida
     }
   } else if (!occupied && type === 'normal' && w > 70) {
-    if (m >= SPIKES_FROM_M && Math.random() < 0.05 + 0.1 * spikeD) foes.push({ kind: 'spike', bar, off, x: 0, y: 0, r: 12 });
+    const bm = -y / PX_PER_M;
+    if (bm >= SPACE_FROM_M) {
+      // Espacio: minas espaciales sobre los meteoritos (misma mecánica que cardos y pinchos)
+      if (bm < HEAVEN_FROM_M && Math.random() < 0.17) foes.push({ kind: 'mine', bar, off, x: 0, y: 0, r: 12, t: Math.random() * 6 });
+    } else if (m >= SPIKES_FROM_M && Math.random() < 0.05 + 0.1 * spikeD) foes.push({ kind: 'spike', bar, off, x: 0, y: 0, r: 12 });
     else if (m >= SAFE_M && Math.random() < 0.08 + 0.14 * thornD) foes.push({ kind: 'thorn', bar, off, x: 0, y: 0, r: 12 });
   }
   topY = y;
@@ -676,6 +704,8 @@ const LOSS_PHRASES = {
   bat: ['¡Un murciélago la asustó!', '¡Mordisco nocturno!', '¡Ese murciélago no veía nada!', '¡Ataque desde la oscuridad!'],
   thorn: ['¡Cardos y lana no combinan!', '¡Pinchazo de cardo!', '¡Aterrizó en un cardo!', '¡Ese cardo estaba de malas!'],
   spike: ['¡Auch, pinchos!', '¡Esos pinchos no eran de adorno!', '¡Pinchada sin piedad!', '¡Mala idea pisar ahí!'],
+  drone: ['¡Un dron sin control!', '¡Ese dron no tenía frenos!', '¡Interceptada por un dron!', '¡Bip bip… choque!'],
+  mine: ['¡Boom! Una mina espacial', '¡Cuidado con las minas!', '¡Explosión sideral!', '¡Esa mina no era decorativa!'],
   star: ['¡Te alcanzó la estrella fugaz!', '¡Pide un deseo… la próxima vez!', '¡Qué estrellazo!', '¡Brilló demasiado cerca!'],
   flip: ['¡Chanclazo!', '¡La chancleta voladora no perdona!', '¡Llegó la chancla!', '¡Nadie esquiva la chancla!'],
   hit: ['¡Ay, ay, ay!'],
@@ -691,6 +721,7 @@ function lossPhrase(reason) {
 function gameOver(reason) {
   mode = 'over';
   blurry = 0;
+  trapped = 0; wind = null;
   const m = meters();
   const isRecord = m > best;
   if (isRecord) { best = m; safeSet('best-m', best); }
@@ -786,7 +817,8 @@ function cheer(f) {
     const opts = CHEERS.filter((c) => c !== lastCheer);
     f.say = lastCheer = opts[Math.floor(Math.random() * opts.length)];
     sfx.cheer();
-    // Regalo: un sendauro extra (aunque ya tenga 3; máximo 4)
+    // Regalo: un escudo de 5 s y un sendauro extra (aunque ya tenga 3; máximo 4)
+    shield = Math.max(shield, SHIELD_TIME);
     if (hearts < BONUS_HEARTS) {
       hearts++;
       updateHud();
@@ -798,7 +830,7 @@ function cheer(f) {
   f.sayT = 3.5;
 }
 
-const PRIZES = new Set(['heart', 'shield', 'hat', 'glasses']);
+const PRIZES = new Set(['heart', 'shield', 'hat', 'rocket', 'wings', 'glasses']);
 function collectPrize(f) {
   f.taken = true;
   puff(f.x, f.y, '#ffffff', 6, 110);
@@ -817,8 +849,9 @@ function collectPrize(f) {
     puff(f.x, f.y, '#c9b8ff', 12, 150);
     sfx.wobble();
     showAnnounce('¡Uy, el ojólogo!', '#6b4fd8');
-  } else if (f.kind === 'hat') {
-    boost = { toY: Math.min(sheep.y, f.y) - HAT_BOOST_M * PX_PER_M, t: 0 };
+  } else if (f.kind === 'hat' || f.kind === 'rocket' || f.kind === 'wings') {
+    boost = { toY: Math.min(sheep.y, f.y) - HAT_BOOST_M * PX_PER_M, t: 0, style: f.kind };
+    trapped = 0;
     puff(f.x, f.y, '#ffc33e', 12, 160);
     sfx.whoosh();
   }
@@ -857,8 +890,25 @@ function update(dt) {
   if (sheep.x < -16) sheep.x = GW + 16;
   if (sheep.x > GW + 16) sheep.x = -16;
 
+  // Viento: empuja de lado (tras un pequeño aviso), entra y sale suave
+  if (wind) {
+    wind.t += dt;
+    if (wind.warn > 0) wind.warn -= dt;
+    else if (playing) {
+      const k = Math.min(1, (wind.t - 0.9) / 0.4, (WIND_TIME + 0.9 - wind.t) / 0.5);
+      sheep.x += wind.dir * WIND_PUSH * Math.max(0, k) * dt;
+    }
+    if (wind.t > WIND_TIME + 0.9) wind = null;
+  }
   const prevY = sheep.y;
-  if (boost) {
+  if (trapped > 0 && !boost) {
+    // Dentro de una burbuja: sube despacio, casi sin control, y al final la burbuja revienta
+    trapped -= dt;
+    sheep.vy = -55;
+    sheep.x -= sheep.vx * dt * 0.7;
+    sheep.y += sheep.vy * dt;
+    if (trapped <= 0) { trapped = 0; sheep.vy = 0; puff(sheep.x, sheep.y - SHEEP_H * 0.5, '#bfe9ff', 12, 170); sfx.pop(); }
+  } else if (boost) {
     // Gorrito con hélice: sube sin gravedad hasta completar los 50 m
     sheep.vy = -HAT_SPEED;
     sheep.y += sheep.vy * dt;
@@ -923,6 +973,44 @@ function update(dt) {
       if (f.x < 16) { f.x = 16; f.vx *= -1; }
       if (f.x > GW - 16) { f.x = GW - 16; f.vx *= -1; }
       f.y = f.baseY + Math.sin(f.t * 3) * 12;
+    } else if (f.kind === 'hole') {
+      f.t += dt;
+      // Agujero negro: atrae a Sheepy hacia su centro, sin hacerle daño
+      if (playing && !boost) {
+        const dx = f.x - sheep.x, dy = f.y - (sheep.y - SHEEP_H * 0.5), d = Math.hypot(dx, dy);
+        if (d < HOLE_R && d > 4) {
+          const k = 1 - d / HOLE_R;
+          sheep.x += (dx / d) * HOLE_PULL * (0.4 + k) * dt;
+          sheep.vy += (dy / d) * 900 * k * dt;
+          if (Math.random() < dt * 20) parts.push({ x: f.x + Math.cos(f.t * 5) * 30, y: f.y + Math.sin(f.t * 5) * 30, vx: -Math.cos(f.t * 5) * 60, vy: -Math.sin(f.t * 5) * 60, life: 0.4, max: 0.4, color: '#c79bff', r: 2 });
+        }
+      }
+      continue;
+    } else if (f.kind === 'bubble') {
+      f.t += dt;
+      f.x += f.vx * dt;
+      if (f.x < 20) { f.x = 20; f.vx *= -1; }
+      if (f.x > GW - 20) { f.x = GW - 20; f.vx *= -1; }
+      f.y = f.baseY + Math.sin(f.t * 2) * 10;
+      if (playing && !boost && trapped <= 0 && !f.taken) {
+        const dx = f.x - sheep.x, dy = f.y - (sheep.y - SHEEP_H * 0.5);
+        if (dx * dx + dy * dy < (f.r + SHEEP_W * 0.4) ** 2) {
+          f.taken = true; trapped = BUBBLE_TIME; sheep.vy = -55;
+          puff(f.x, f.y, '#bfe9ff', 8, 120); sfx.bubble();
+          showAnnounce('¡Atrapada en una burbuja!', '#2f7fd0');
+        }
+      }
+      continue;
+    } else if (f.kind === 'drone') {
+      f.t += dt;
+      f.x += f.vx * dt;
+      if (f.x < 18) { f.x = 18; f.vx *= -1; }
+      if (f.x > GW - 18) { f.x = GW - 18; f.vx *= -1; }
+      f.y = f.baseY + Math.sin(f.t * 3) * 10;
+    } else if (f.kind === 'mine') {
+      f.t += dt;
+      f.x = f.bar.x + f.off;
+      f.y = f.bar.y - 10;
     } else if (f.kind === 'bat') {
       f.t += dt;
       f.x += f.vx * dt;
@@ -993,12 +1081,20 @@ function update(dt) {
 
   // Chancleta voladora: de vez en cuando cruza la pantalla con aviso y anuncio
   const crossing = foes.some((f) => CROSSERS.has(f.kind));
-  if (meters() >= nextFlipM && !boost && !crossing) {
-    nextFlipM = meters() + 170 + Math.random() * 160;
+  const mNow = meters();
+  if (mNow >= nextFlipM && mNow < SPACE_FROM_M && !boost && !crossing) {          // chancleta: solo de día (300–1000 m)
+    nextFlipM = mNow + 170 + Math.random() * 160;
     spawnCrosser('flip');
-  } else if (meters() >= nextStarM && !boost && !crossing) {
+  } else if (mNow >= nextStarM && mNow < HEAVEN_FROM_M && !boost && !crossing) {   // estrella fugaz: solo en el espacio
     nextStarM = meters() + 200 + Math.random() * 200;
     spawnCrosser('star');
+  }
+  // Ráfagas de viento en el cielo (desde 2000 m)
+  if (mNow >= HEAVEN_FROM_M && mNow >= nextWindM && !wind) {
+    nextWindM = mNow + 110 + Math.random() * 110;
+    wind = { dir: Math.random() < 0.5 ? -1 : 1, t: 0, warn: 0.9 };
+    showAnnounce('¡Ráfaga de viento!', '#2f7fd0');
+    sfx.wind();
   }
 
   // Generar y limpiar
@@ -1734,8 +1830,9 @@ function drawPartySheep(s) {
     ctx.beginPath(); ctx.ellipse(0, 0, SHEEP_W * 0.42, 3.5, 0, 0, Math.PI * 2); ctx.fill();
   }
   if (s.face < 0) ctx.scale(-1, 1);
+  if (boost && boost.style !== 'hat') drawBoostBack(boost, h);
   ctx.drawImage(im, -w / 2, -h, w, h);
-  if (boost) { ctx.translate(w * (PARTY_HEAD.x - 0.5), -h + h * PARTY_HEAD.y + 2); drawPropHat(boost.t, 1); }
+  if (boost && boost.style === 'hat') { ctx.translate(w * (PARTY_HEAD.x - 0.5), -h + h * PARTY_HEAD.y + 2); drawPropHat(boost.t, 1); }
   ctx.restore();
 }
 
@@ -1771,6 +1868,7 @@ function drawSheep(s) {
   const lx = -SHEEP_W / 2;
   const top = -SHEEP_H;
 
+  if (boost && (boost.style === 'rocket' || boost.style === 'wings')) drawBoostBack(boost, SHEEP_H);
   // Brazos y orejas van detrás del cuerpo: su base queda tapada por la lana
   drawPart('armL', lx, top, s.arm);
   drawPart('armR', lx, top, -s.arm);
@@ -1799,7 +1897,7 @@ function drawSheep(s) {
       ctx.beginPath(); ctx.arc(x, y - 3 * SPR_K, 7 * SPR_K, 0.25 * Math.PI, 0.75 * Math.PI); ctx.stroke();
     }
   }
-  if (boost) { ctx.translate(0, top + 4); drawPropHat(boost.t, 1); }
+  if (boost && boost.style !== 'rocket' && boost.style !== 'wings') { ctx.translate(0, top + 4); drawPropHat(boost.t, 1); }
   ctx.restore();
 }
 
@@ -2192,6 +2290,174 @@ function drawSpring(f) {
   ctx.restore();
 }
 
+// ---------- Espacio y cielo: nuevos elementos ----------
+// Mochila cohete y alas de ángel detrás de Sheepy mientras sube (h = alto de Sheepy)
+function drawBoostBack(bst, h) {
+  ctx.save();
+  ctx.strokeStyle = OUTLINE; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  if (bst.style === 'rocket') {
+    for (const dx of [-21, 21]) {
+      const fl = 18 + Math.sin(bst.t * 40 + dx) * 6;
+      const g = ctx.createLinearGradient(0, -h * 0.28, 0, -h * 0.28 + fl + 10);
+      g.addColorStop(0, '#fff3a0'); g.addColorStop(0.4, '#ff9a2e'); g.addColorStop(1, 'rgba(255,80,40,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.moveTo(dx - 5, -h * 0.3); ctx.quadraticCurveTo(dx, -h * 0.3 + fl * 1.6, dx + 5, -h * 0.3); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#d7dbe3'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.roundRect(dx - 7, -h * 0.72, 14, h * 0.42, 6); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#e3262b';
+      ctx.beginPath(); ctx.moveTo(dx - 7, -h * 0.68); ctx.quadraticCurveTo(dx, -h * 0.84, dx + 7, -h * 0.68); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#6f7682'; ctx.fillRect(dx - 5, -h * 0.33, 10, 4); ctx.strokeRect(dx - 5, -h * 0.33, 10, 4);
+    }
+  } else if (bst.style === 'wings') {
+    const flap = Math.sin(bst.t * 16) * 0.35;
+    for (const d of [-1, 1]) {
+      ctx.save();
+      ctx.translate(d * 8, -h * 0.62);
+      ctx.scale(d, 1);
+      ctx.rotate(-0.25 + flap);
+      drawWing(1);
+      ctx.restore();
+    }
+  }
+  ctx.restore();
+}
+function drawWing(k) {
+  ctx.save(); ctx.scale(k, k);
+  ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#c99a2e'; ctx.lineWidth = 2;
+  ctx.shadowColor = 'rgba(255,215,100,0.9)'; ctx.shadowBlur = 8;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.quadraticCurveTo(22, -26, 46, -20);
+  ctx.quadraticCurveTo(42, -12, 46, -8);
+  ctx.quadraticCurveTo(38, -2, 40, 4);
+  ctx.quadraticCurveTo(30, 6, 30, 12);
+  ctx.quadraticCurveTo(18, 12, 14, 16);
+  ctx.quadraticCurveTo(4, 10, 0, 0);
+  ctx.closePath(); ctx.fill();
+  ctx.shadowBlur = 0; ctx.stroke();
+  ctx.strokeStyle = 'rgba(201,154,46,0.6)'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(8, -2); ctx.quadraticCurveTo(24, -10, 40, -12); ctx.moveTo(8, 3); ctx.quadraticCurveTo(22, 0, 34, 2); ctx.stroke();
+  ctx.restore();
+}
+function drawRocketPrize(f) {
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  prizeGlow(f, 22, 24);
+  ctx.rotate(Math.sin(f.t * 2.4) * 0.12);
+  ctx.scale(0.9, 0.9);
+  drawBoostBack({ style: 'rocket', t: f.t }, 40);
+  ctx.restore();
+}
+function drawWingsPrize(f) {
+  ctx.save();
+  ctx.translate(f.x, f.y + 4);
+  prizeGlow(f, 26, 20);
+  const flap = Math.sin(f.t * 5) * 0.2;
+  for (const d of [-1, 1]) { ctx.save(); ctx.scale(d, 1); ctx.translate(2, 0); ctx.rotate(-0.3 + flap); drawWing(0.55); ctx.restore(); }
+  ctx.fillStyle = '#ffd23f'; ctx.strokeStyle = '#b8860b'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(0, -16, 9, 3, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+}
+// Dron: misma mecánica que la abeja
+function drawDrone(f) {
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  ctx.rotate(Math.sin(f.t * 3) * 0.08 + (f.vx > 0 ? 0.08 : -0.08));
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+  // Brazos y hélices
+  for (const dx of [-15, 15]) {
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(dx, -6); ctx.stroke();
+    const sp = Math.abs(Math.cos(time * 40 + dx));
+    ctx.fillStyle = 'rgba(220,235,255,0.75)';
+    ctx.beginPath(); ctx.ellipse(dx, -8, 10 * sp + 2, 2, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#39445e'; ctx.beginPath(); ctx.arc(dx, -6, 2.5, 0, Math.PI * 2); ctx.fill();
+  }
+  // Cuerpo
+  ctx.fillStyle = '#5f7196';
+  ctx.beginPath(); ctx.roundRect(-11, -6, 22, 12, 5); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(-8, -4, 16, 2.5);
+  // Ojo rojo que parpadea
+  const on = Math.sin(time * 8 + f.t) > -0.3;
+  ctx.fillStyle = on ? '#ff3b3b' : '#7a1a1a';
+  ctx.save(); if (on) { ctx.shadowColor = '#ff3b3b'; ctx.shadowBlur = 8; }
+  ctx.beginPath(); ctx.arc(f.vx > 0 ? 5 : -5, 1, 3.2, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  ctx.stroke();
+  // Patitas
+  ctx.beginPath(); ctx.moveTo(-6, 6); ctx.lineTo(-8, 10); ctx.moveTo(6, 6); ctx.lineTo(8, 10); ctx.stroke();
+  ctx.restore();
+}
+// Mina espacial sobre el meteorito: misma mecánica que cardos y pinchos
+function drawMine(f) {
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+  ctx.fillStyle = '#8b93a6';
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    ctx.beginPath(); ctx.moveTo(Math.cos(a - 0.2) * 8, Math.sin(a - 0.2) * 8); ctx.lineTo(Math.cos(a) * 13, Math.sin(a) * 13); ctx.lineTo(Math.cos(a + 0.2) * 8, Math.sin(a + 0.2) * 8); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  ctx.fillStyle = '#4b5366'; ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.beginPath(); ctx.arc(-3, -3, 3, 0, Math.PI * 2); ctx.fill();
+  const on = Math.sin(time * 6 + f.t) > 0;
+  ctx.fillStyle = on ? '#ff3b3b' : '#7a1a1a';
+  ctx.save(); if (on) { ctx.shadowColor = '#ff3b3b'; ctx.shadowBlur = 10; }
+  ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  ctx.restore();
+}
+// Agujero negro: espiral que gira y atrae
+function drawHole(f) {
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  // zona de atracción, muy suave
+  const g = ctx.createRadialGradient(0, 0, 10, 0, 0, HOLE_R);
+  g.addColorStop(0, 'rgba(140,90,255,0.28)'); g.addColorStop(1, 'rgba(140,90,255,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, HOLE_R, 0, Math.PI * 2); ctx.fill();
+  ctx.rotate(f.t * 2.2);
+  for (const [r, col, wd] of [[30, 'rgba(255,170,90,0.85)', 4], [24, 'rgba(255,90,200,0.85)', 3.5], [18, 'rgba(160,110,255,0.95)', 3]]) {
+    ctx.strokeStyle = col; ctx.lineWidth = wd; ctx.lineCap = 'round';
+    for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(0, 0, r, k * 2.1, k * 2.1 + 1.3); ctx.stroke(); }
+  }
+  ctx.fillStyle = '#05030c'; ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+// Burbuja flotante del cielo y la que atrapa a Sheepy
+function bubbleShape(x, y, r, t) {
+  ctx.save();
+  const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.1, x, y, r);
+  g.addColorStop(0, 'rgba(255,255,255,0.6)'); g.addColorStop(0.65, 'rgba(150,215,255,0.3)'); g.addColorStop(1, 'rgba(230,120,230,0.55)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(40,90,150,0.55)'; ctx.lineWidth = 4; ctx.stroke();
+  ctx.strokeStyle = `hsla(${(t * 80) % 360},90%,62%,1)`; ctx.lineWidth = 2.2; ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.beginPath(); ctx.ellipse(x - r * 0.4, y - r * 0.45, r * 0.18, r * 0.1, -0.7, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+function drawFloatBubble(f) { bubbleShape(f.x, f.y, f.r, f.t); }
+function drawTrapBubble(s) {
+  if (trapped <= 0) return;
+  const wob = 1 + Math.sin(time * 9) * 0.03;
+  bubbleShape(s.x, s.y - SHEEP_H * 0.5, SHEEP_H * 0.66 * wob, time);
+}
+// Líneas de viento que cruzan la pantalla
+function drawWind() {
+  if (!wind) return;
+  const a = wind.warn > 0 ? 0.35 : Math.min(1, (WIND_TIME + 0.9 - wind.t) / 0.5);
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, a);
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 9; i++) {
+    const yy = ((i * 97) % 100) / 100 * H;
+    const len = 60 + (i * 31) % 60;
+    const x = ((wind.t * 700 * wind.dir + i * 173) % (W + 200) + W + 200) % (W + 200) - 100;
+    ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x - wind.dir * len, yy);
+    ctx.quadraticCurveTo(x - wind.dir * (len + 20), yy - 10, x - wind.dir * (len + 6), yy - 16);
+    ctx.strokeStyle = 'rgba(70,130,200,0.55)'; ctx.lineWidth = 6; ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.95)'; ctx.lineWidth = 3; ctx.stroke();
+  }
+  ctx.restore();
+}
+
 // Pinchos metálicos sobre el tablón: misma mecánica que el cardo
 function drawSpike(f) {
   ctx.save();
@@ -2268,11 +2534,13 @@ function draw() {
   }
   ctx.globalAlpha = 1;
   drawSheep(sheep);
+  drawTrapBubble(sheep);
   if (shield > 0) drawShieldBubble(sheep);
   for (const f of foes) if (f.kind === 'jesus') drawSpeech(f);
   drawSheepSay();
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawWind();
   if (offX > 4) {
     ctx.fillStyle = 'rgba(15,20,40,0.25)';
     ctx.fillRect(0, 0, offX, H);
@@ -2282,7 +2550,8 @@ function draw() {
   }
 }
 
-const FOE_DRAW = { bee: drawBee, bat: drawBat, thorn: drawThorn, spike: drawSpike, spring: drawSpring, flip: drawFlip, jesus: drawJesus, star: drawShootingStar, glasses: drawGlassesPrize, heart: drawHeart, shield: drawShieldPrize, hat: drawHatPrize };
+const FOE_DRAW = { bee: drawBee, bat: drawBat, thorn: drawThorn, spike: drawSpike, spring: drawSpring, flip: drawFlip, jesus: drawJesus, star: drawShootingStar, glasses: drawGlassesPrize,
+  drone: drawDrone, mine: drawMine, hole: drawHole, bubble: drawFloatBubble, rocket: drawRocketPrize, wings: drawWingsPrize, heart: drawHeart, shield: drawShieldPrize, hat: drawHatPrize };
 
 // ---------- Bucle ----------
 let last = performance.now();

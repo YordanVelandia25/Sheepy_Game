@@ -37,6 +37,11 @@ const JUMP = 830;        // fuerza del rebote (altura máx. ≈ 230)
 const MOVE = 320;        // velocidad lateral
 const PX_PER_M = 40;     // unidades por metro
 const MAX_HEARTS = 3;
+// Etapas del mundo (en metros)
+const NIGHT_FROM_M = 800;    // de día hasta 800 m; de 800 a 1000 m se hace de noche
+const SPACE_FROM_M = 1000;   // de 1000 a 2000 m: espacio exterior
+const HEAVEN_FROM_M = 2000;  // desde 2000 m: el cielo y la ciudad de oro
+const PARTY_FROM_M = 1000;   // a los 1000 m Sheepy se pone su traje de fiesta
 const BONUS_HEARTS = 4; // solo el tablón de Jesús da el cuarto sendauro
 // Progresión de obstáculos y premios (en metros)
 const SAFE_M = 100;        // 0–99 m: sin obstáculos
@@ -160,6 +165,7 @@ function inputDir() {
 // ---------- Estado ----------
 let mode = 'menu'; // menu | play | over
 let sheep, bars, foes, parts, camY, topY, maxY, hearts, inv, time, newRecordShown, nextHeartM;
+let skin = 'classic';
 let shield, boost, nextShieldM, nextHatM, nextFlipM, nextJesusM, nextStarM, nextGlassesM, blurry;
 let best = Number(safeGet('best-m') || 0);
 
@@ -189,6 +195,7 @@ function reset() {
   nextStarM = STAR_FROM_M + Math.random() * 80;
   nextGlassesM = GLASSES_FROM_M + Math.random() * 80;
   blurry = 0;
+  skin = 'classic';
   sheepSay = null;
   inv = 0;
   time = 0;
@@ -971,6 +978,13 @@ function update(dt) {
     }
   }
 
+  // A los 1000 m Sheepy se pone su traje de fiesta
+  if (skin === 'classic' && meters() >= PARTY_FROM_M) {
+    skin = 'party';
+    for (const col of ['#ff4fb8', '#ffe14d', '#4fe36b', '#3fc4ff', '#b35cff']) puff(sheep.x, sheep.y - SHEEP_H * 0.5, col, 5, 200);
+    sfx.record();
+  }
+
   // Chancleta voladora: de vez en cuando cruza la pantalla con aviso y anuncio
   const crossing = foes.some((f) => CROSSERS.has(f.kind));
   if (meters() >= nextFlipM && !boost && !crossing) {
@@ -1011,6 +1025,7 @@ const SPRITES = {
   armR: 'sprites/oveja-brazo-der.png',
   bill: 'sprites/billete.webp',
   jesus: 'sprites/jesus.webp',
+  party: 'sprites/oveja-fiesta.webp',
 };
 // Piezas móviles: esquina superior izquierda (x, y) y punto de giro (px, py), en píxeles del sprite
 const PARTS = {
@@ -1050,32 +1065,52 @@ const ridges = [0, 1, 2].map((layer) => {
   return pts;
 });
 
-function skyT() { return Math.min(Math.max((-camY - GH) / (PX_PER_M * 500), 0), 1); }
+const clamp01 = (v) => Math.min(Math.max(v, 0), 1);
+// Altura (m) a la que mira la cámara, más o menos la de Sheepy
+function viewM() { return Math.max(0, (-camY - GH * 0.58) / PX_PER_M); }
+function skyT() { return clamp01((viewM() - NIGHT_FROM_M) / (SPACE_FROM_M - NIGHT_FROM_M)); }   // día → noche
+function spaceT() { return clamp01((viewM() - SPACE_FROM_M) / 120); }                           // noche → espacio
+function heavenT() { return clamp01((viewM() - HEAVEN_FROM_M) / 150); }                         // espacio → cielo
+const lerpC = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
 
 function drawSky() {
-  const t = skyT();
+  const t = skyT(), sp = spaceT(), hv = heavenT();
+  // Degradado: día/atardecer/noche → espacio → cielo dorado
+  let top = mix3(PAL.skyTop, t), bot = mix3(PAL.skyBottom, t);
+  top = lerpC(top, hexRgb('070a26'), sp); bot = lerpC(bot, hexRgb('2a1a5e'), sp);
+  top = lerpC(top, hexRgb('fff6dc'), hv); bot = lerpC(bot, hexRgb('ffc94f'), hv);
   const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, rgb(mix3(PAL.skyTop, t)));
-  g.addColorStop(1, rgb(mix3(PAL.skyBottom, t)));
+  g.addColorStop(0, rgb(top));
+  g.addColorStop(1, rgb(bot));
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
 
-  if (t > 0.45) {
-    ctx.fillStyle = `rgba(255,250,220,${Math.min((t - 0.45) * 1.8, 0.9)})`;
-    for (const s of stars) {
-      const y = ((s.y * H - camY * scale * 0.05) % H + H) % H;
-      drawSparkle(s.x * W, y, s.r * 1.6);
+  // Estrellas: aparecen al anochecer, son muchas en el espacio y se apagan en el cielo
+  const starA = Math.max(clamp01((t - 0.45) * 1.8) * 0.9, sp) * (1 - hv);
+  if (starA > 0.01) {
+    for (const st of stars) {
+      const y = ((st.y * H - camY * scale * 0.05) % H + H) % H;
+      const tw = 0.65 + 0.35 * Math.sin(time * 2.5 + st.x * 40);
+      ctx.fillStyle = `rgba(255,250,220,${starA * tw})`;
+      drawSparkle(st.x * W, y, st.r * 1.6);
+    }
+    if (sp > 0) {
+      for (const st of spaceStars) {
+        const y = ((st.y * H - camY * scale * st.p) % H + H) % H;
+        ctx.fillStyle = `rgba(${st.c},${sp * (1 - hv) * (0.5 + 0.5 * Math.sin(time * 3 + st.x * 50))})`;
+        ctx.beginPath(); ctx.arc(st.x * W, y, st.r * Math.max(scale, 0.8), 0, Math.PI * 2); ctx.fill();
+      }
     }
   }
 
-  // Sol de caricatura
+  // Sol de caricatura (solo cerca del suelo)
   const rise = -camY - (GH - 90);
   const sunY = H * 0.28 + rise * scale * 0.08;
   if (sunY < H + 80) {
     const sx = W * 0.78, r = 30 * Math.max(scale, 0.8);
     ctx.fillStyle = 'rgba(255,230,120,0.25)';
     ctx.beginPath(); ctx.arc(sx, sunY, r * 1.6, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = t < 0.6 ? '#ffd23f' : '#fff3c4';
+    ctx.fillStyle = '#ffd23f';
     ctx.strokeStyle = 'rgba(29,26,26,0.55)';
     ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(sx, sunY, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
@@ -1083,15 +1118,318 @@ function drawSky() {
     ctx.beginPath(); ctx.arc(sx - r * 0.35, sunY - r * 0.35, r * 0.28, 0, Math.PI * 2); ctx.fill();
   }
 
-  for (const c of clouds) {
-    c.x += (c.v / W) * (1 / 60);
-    if (c.x > 1.3) c.x = -0.3;
-    const span = H + 200;
-    const y = ((c.y * span - camY * scale * 0.25) % span + span) % span - 100;
-    drawCloud(c.x * W, y, c.s * Math.max(scale, 0.8), t);
+  // Luna al anochecer
+  const moonA = clamp01((t - 0.3) * 2) * (1 - sp);
+  if (moonA > 0.01) drawMoon(W * 0.24, H * 0.2, 26 * Math.max(scale, 0.8), moonA);
+
+  // Espacio exterior: planetas, galaxias, cometas…
+  if (sp > 0.01 && hv < 0.99) drawSpace(sp * (1 - hv));
+
+  // Cielo: rayos de luz y la ciudad de oro al fondo
+  if (hv > 0.01) drawHeaven(hv);
+
+  // Nubes: de día y en el cielo (no en el espacio)
+  const cloudA = Math.max(1 - sp, hv);
+  if (cloudA > 0.01) {
+    ctx.save();
+    ctx.globalAlpha = cloudA;
+    for (const c of clouds) {
+      c.x += (c.v / W) * (1 / 60);
+      if (c.x > 1.3) c.x = -0.3;
+      const span = H + 200;
+      const y = ((c.y * span - camY * scale * 0.25) % span + span) % span - 100;
+      drawCloud(c.x * W, y, c.s * Math.max(scale, 0.8), hv > 0 ? 0 : t, hv);
+    }
+    ctx.restore();
   }
 
-  drawMountains(rise, t);
+  if (viewM() < 700) drawMountains(rise, t);
+}
+
+// Luna creciente
+function drawMoon(x, y, r, a) {
+  ctx.save();
+  ctx.globalAlpha = a;
+  ctx.fillStyle = 'rgba(255,245,200,0.18)';
+  ctx.beginPath(); ctx.arc(x, y, r * 1.7, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.closePath();
+  ctx.fillStyle = '#fff3c4'; ctx.fill();
+  ctx.strokeStyle = 'rgba(29,26,26,0.55)'; ctx.lineWidth = 3; ctx.stroke();
+  ctx.fillStyle = 'rgba(214,196,140,0.6)';
+  for (const [dx, dy, rr] of [[-0.3, -0.2, 0.18], [0.25, 0.25, 0.14], [0.1, -0.4, 0.1]]) {
+    ctx.beginPath(); ctx.arc(x + dx * r, y + dy * r, rr * r, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ---------- Espacio exterior (1000–2000 m) ----------
+const spaceStars = Array.from({ length: 90 }, () => ({
+  x: Math.random(), y: Math.random(), r: 0.6 + Math.random() * 1.4, p: 0.03 + Math.random() * 0.06,
+  c: ['255,255,255', '200,220,255', '255,230,200', '255,200,240'][Math.floor(Math.random() * 4)],
+}));
+// Objetos colocados a lo largo del viaje: altura (m), posición x (0..1), tipo y tamaño
+const SPACE_KINDS = ['ringed', 'red', 'earth', 'galaxy', 'gas', 'moonrock', 'comet', 'asteroids', 'nebula', 'satellite'];
+const spaceObjs = [];
+for (let m = SPACE_FROM_M + 30, i = 0; m < HEAVEN_FROM_M + 40; m += 42 + (i * 37) % 30, i++) {
+  spaceObjs.push({ m, x: [0.18, 0.78, 0.3, 0.7, 0.15, 0.85, 0.5][i % 7], kind: SPACE_KINDS[i % SPACE_KINDS.length], s: 0.8 + ((i * 53) % 10) / 20, rot: (i * 1.7) % 6.28 });
+}
+const SPACE_PAR = 0.22; // se mueven más despacio que los tablones (están lejos)
+function drawSpace(a) {
+  ctx.save();
+  ctx.globalAlpha = a;
+  // Nebulosas suaves de fondo
+  for (const [fx, fy, rr, col] of [[0.2, 0.3, 0.55, '160,90,255'], [0.85, 0.7, 0.5, '255,90,190'], [0.5, 0.05, 0.4, '60,170,255']]) {
+    const yy = ((fy * H - camY * scale * 0.02) % (H * 1.4) + H * 1.4) % (H * 1.4) - H * 0.2;
+    const gr = ctx.createRadialGradient(fx * W, yy, 0, fx * W, yy, rr * W);
+    gr.addColorStop(0, `rgba(${col},0.22)`); gr.addColorStop(1, `rgba(${col},0)`);
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+  }
+  const cm = (-camY - GH * 0.5) / PX_PER_M;
+  const k = Math.max(scale, 0.8);
+  for (const o of spaceObjs) {
+    const y = H * 0.5 - (o.m - cm) * PX_PER_M * scale * SPACE_PAR;
+    if (y < -160 * k || y > H + 160 * k) continue;
+    drawSpaceObj(o, o.x * W, y, o.s * k * 1.35);
+  }
+  ctx.restore();
+}
+function planet(x, y, r, base, light, dark) {
+  ctx.save();
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = base; ctx.fill();
+  ctx.clip();
+  ctx.fillStyle = dark; ctx.beginPath(); ctx.arc(x + r * 0.35, y + r * 0.35, r * 1.05, 0, Math.PI * 2); ctx.arc(x - r * 0.15, y - r * 0.15, r * 1.02, 0, Math.PI * 2, true); ctx.fill('evenodd');
+  ctx.fillStyle = light; ctx.beginPath(); ctx.ellipse(x - r * 0.4, y - r * 0.45, r * 0.28, r * 0.16, -0.6, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+}
+function drawSpaceObj(o, x, y, k) {
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  switch (o.kind) {
+    case 'ringed': {
+      const r = 34 * k;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(-0.35);
+      ctx.strokeStyle = OUTLINE; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.ellipse(0, 0, r * 1.9, r * 0.55, 0, Math.PI, Math.PI * 2); ctx.fillStyle = '#ffd98a'; ctx.stroke();
+      ctx.restore();
+      planet(x, y, r, '#f2a65a', 'rgba(255,255,255,0.5)', 'rgba(150,70,20,0.35)');
+      ctx.save(); ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.clip();
+      ctx.strokeStyle = 'rgba(160,80,30,0.45)'; ctx.lineWidth = 4 * k;
+      for (const d of [-0.4, 0.05, 0.45]) { ctx.beginPath(); ctx.moveTo(x - r, y + d * r - 4); ctx.quadraticCurveTo(x, y + d * r + 6, x + r, y + d * r - 8); ctx.stroke(); }
+      ctx.restore();
+      ctx.save(); ctx.translate(x, y); ctx.rotate(-0.35);
+      ctx.lineWidth = 7 * k; ctx.strokeStyle = OUTLINE;
+      ctx.beginPath(); ctx.ellipse(0, 0, r * 1.9, r * 0.55, 0, 0, Math.PI); ctx.stroke();
+      ctx.lineWidth = 4 * k; ctx.strokeStyle = '#ffe1a0';
+      ctx.beginPath(); ctx.ellipse(0, 0, r * 1.9, r * 0.55, 0, 0, Math.PI); ctx.stroke();
+      ctx.restore();
+      break;
+    }
+    case 'red': {
+      const r = 26 * k;
+      planet(x, y, r, '#e8603c', 'rgba(255,220,200,0.55)', 'rgba(120,30,10,0.35)');
+      ctx.fillStyle = 'rgba(140,40,20,0.5)';
+      for (const [dx, dy, rr] of [[-0.3, 0.1, 0.18], [0.3, -0.25, 0.12], [0.1, 0.45, 0.1]]) { ctx.beginPath(); ctx.arc(x + dx * r, y + dy * r, rr * r, 0, Math.PI * 2); ctx.fill(); }
+      break;
+    }
+    case 'earth': {
+      const r = 30 * k;
+      planet(x, y, r, '#3f8fd0', 'rgba(255,255,255,0.6)', 'rgba(10,40,90,0.35)');
+      ctx.save(); ctx.beginPath(); ctx.arc(x, y, r - 1, 0, Math.PI * 2); ctx.clip();
+      ctx.fillStyle = '#5fbf5a';
+      ctx.beginPath(); ctx.ellipse(x - r * 0.3, y - r * 0.1, r * 0.35, r * 0.5, 0.5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x + r * 0.45, y + r * 0.35, r * 0.3, r * 0.22, -0.3, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      ctx.strokeStyle = OUTLINE; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+      break;
+    }
+    case 'gas': {
+      const r = 40 * k;
+      planet(x, y, r, '#9b7bff', 'rgba(255,255,255,0.45)', 'rgba(50,20,120,0.35)');
+      ctx.save(); ctx.beginPath(); ctx.arc(x, y, r - 1, 0, Math.PI * 2); ctx.clip();
+      ctx.fillStyle = 'rgba(255,170,230,0.45)';
+      for (const d of [-0.55, -0.1, 0.35]) ctx.fillRect(x - r, y + d * r, r * 2, r * 0.16);
+      ctx.fillStyle = 'rgba(255,120,120,0.7)'; ctx.beginPath(); ctx.ellipse(x + r * 0.35, y + r * 0.15, r * 0.18, r * 0.1, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      ctx.strokeStyle = OUTLINE; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+      break;
+    }
+    case 'moonrock': {
+      const r = 18 * k;
+      planet(x, y, r, '#c9c4d6', 'rgba(255,255,255,0.6)', 'rgba(60,50,90,0.3)');
+      ctx.fillStyle = 'rgba(110,100,140,0.55)';
+      for (const [dx, dy, rr] of [[-0.35, -0.1, 0.22], [0.3, 0.3, 0.16], [0.25, -0.4, 0.12]]) { ctx.beginPath(); ctx.arc(x + dx * r, y + dy * r, rr * r, 0, Math.PI * 2); ctx.fill(); }
+      break;
+    }
+    case 'galaxy': {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(o.rot + time * 0.05);
+      const R = 46 * k;
+      const gr = ctx.createRadialGradient(0, 0, 0, 0, 0, R);
+      gr.addColorStop(0, 'rgba(255,240,200,0.95)'); gr.addColorStop(0.25, 'rgba(255,170,230,0.5)'); gr.addColorStop(1, 'rgba(120,90,255,0)');
+      ctx.fillStyle = gr; ctx.scale(1, 0.55); ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,220,255,0.6)'; ctx.lineWidth = 3;
+      for (const off of [0, Math.PI]) {
+        ctx.beginPath();
+        for (let a = 0; a < 4.2; a += 0.15) { const rr = 5 + a * 9 * k; ctx.lineTo(Math.cos(a + off) * rr, Math.sin(a + off) * rr); }
+        ctx.stroke();
+      }
+      ctx.restore();
+      break;
+    }
+    case 'comet': {
+      ctx.save(); ctx.translate(x + Math.sin(time * 0.3 + o.rot) * 20, y);
+      const gr = ctx.createLinearGradient(0, 0, 90 * k, -40 * k);
+      gr.addColorStop(0, 'rgba(160,230,255,0.9)'); gr.addColorStop(1, 'rgba(160,230,255,0)');
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.moveTo(-6 * k, -6 * k); ctx.lineTo(90 * k, -44 * k); ctx.lineTo(96 * k, -30 * k); ctx.lineTo(6 * k, 6 * k); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#e8fbff'; ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(0, 0, 8 * k, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.restore();
+      break;
+    }
+    case 'asteroids': {
+      ctx.fillStyle = '#8d8496'; ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2.5;
+      for (const [dx, dy, rr] of [[-30, 0, 9], [0, -12, 13], [26, 8, 7], [10, 20, 5]]) {
+        ctx.save(); ctx.translate(x + dx * k, y + dy * k); ctx.rotate(time * 0.4 + dx);
+        ctx.beginPath();
+        for (let i = 0; i < 7; i++) { const a = (i / 7) * Math.PI * 2, q = rr * k * (0.75 + ((i * 37 + dx) % 5) / 10); ctx.lineTo(Math.cos(a) * q, Math.sin(a) * q); }
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.restore();
+      }
+      break;
+    }
+    case 'nebula': {
+      for (const [dx, dy, rr, col] of [[0, 0, 60, '255,120,200'], [30, 15, 45, '120,160,255'], [-25, 20, 40, '180,110,255']]) {
+        const gr = ctx.createRadialGradient(x + dx * k, y + dy * k, 0, x + dx * k, y + dy * k, rr * k);
+        gr.addColorStop(0, `rgba(${col},0.35)`); gr.addColorStop(1, `rgba(${col},0)`);
+        ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(x + dx * k, y + dy * k, rr * k, 0, Math.PI * 2); ctx.fill();
+      }
+      break;
+    }
+    case 'satellite': {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(Math.sin(time * 0.6 + o.rot) * 0.3);
+      ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2.2;
+      ctx.fillStyle = '#3f8fd0';
+      for (const d of [-1, 1]) { ctx.fillRect(d * 14 * k - (d < 0 ? 22 * k : 0), -7 * k, 22 * k, 14 * k); ctx.strokeRect(d * 14 * k - (d < 0 ? 22 * k : 0), -7 * k, 22 * k, 14 * k); }
+      ctx.fillStyle = '#d7dbe3'; ctx.beginPath(); ctx.roundRect(-12 * k, -10 * k, 24 * k, 20 * k, 4); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, -10 * k); ctx.lineTo(0, -20 * k); ctx.stroke();
+      ctx.fillStyle = '#ff7751'; ctx.beginPath(); ctx.arc(0, -21 * k, 3 * k, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.restore();
+      break;
+    }
+  }
+}
+
+// ---------- El cielo y la ciudad de oro (desde 2000 m) ----------
+const CITY = (() => {
+  // Edificios en coordenadas relativas (x y ancho en fracción de pantalla; alto en fracción de la altura de la ciudad)
+  const b = [];
+  const plan = [
+    [0.00, 0.10, 0.55, 'tower'], [0.08, 0.12, 0.75, 'dome'], [0.19, 0.07, 0.95, 'spire'], [0.25, 0.13, 0.62, 'dome'],
+    [0.36, 0.28, 0.82, 'gate'], [0.62, 0.12, 0.66, 'dome'], [0.73, 0.07, 1.0, 'spire'], [0.79, 0.12, 0.78, 'dome'], [0.9, 0.12, 0.58, 'tower'],
+  ];
+  for (const [x, w, h, kind] of plan) b.push({ x, w, h, kind });
+  return b;
+})();
+function drawHeaven(hv) {
+  ctx.save();
+  // Rayos de luz desde arriba
+  ctx.globalAlpha = 0.35 * hv;
+  ctx.translate(W / 2, -H * 0.1);
+  ctx.rotate(Math.sin(time * 0.15) * 0.1);
+  for (let i = 0; i < 12; i++) {
+    ctx.rotate(Math.PI / 12);
+    const gr = ctx.createLinearGradient(0, 0, 0, H * 1.3);
+    gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = gr;
+    ctx.beginPath(); ctx.moveTo(-W * 0.04, 0); ctx.lineTo(W * 0.04, 0); ctx.lineTo(W * 0.16, H * 1.3); ctx.lineTo(-W * 0.16, H * 1.3); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+
+  // Brillitos dorados flotando
+  ctx.save();
+  ctx.globalAlpha = hv;
+  for (const st of stars) {
+    const y = ((st.y * H - camY * scale * 0.08 - time * 12) % H + H) % H;
+    ctx.fillStyle = `rgba(255,215,90,${0.5 + 0.5 * Math.sin(time * 2 + st.x * 30)})`;
+    drawSparkle(st.x * W, y, st.r * 2);
+  }
+  ctx.restore();
+
+  drawGoldenCity(hv);
+}
+function drawGoldenCity(hv) {
+  const ch = Math.min(H * 0.42, 340 * Math.max(scale, 0.8));       // alto de la ciudad
+  const baseY = H + (1 - hv) * ch * 1.1;                            // sube desde abajo al llegar
+  const ox = 0;
+  ctx.save();
+  ctx.lineJoin = 'round';
+  // Resplandor detrás
+  const glow = ctx.createRadialGradient(W / 2, baseY - ch * 0.5, 0, W / 2, baseY - ch * 0.5, W * 0.8);
+  glow.addColorStop(0, 'rgba(255,240,180,0.8)'); glow.addColorStop(1, 'rgba(255,240,180,0)');
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+  const gold = '#f3c13f', goldL = '#ffe9a3', goldD = '#c8901a', line = '#7a5310';
+  ctx.strokeStyle = line; ctx.lineWidth = 3;
+  for (const b of CITY) {
+    const x = ox + b.x * W, w = b.w * W, h = b.h * ch, top = baseY - h;
+    // Cuerpo
+    const g = ctx.createLinearGradient(x, 0, x + w, 0);
+    g.addColorStop(0, goldL); g.addColorStop(0.45, gold); g.addColorStop(1, goldD);
+    ctx.fillStyle = g;
+    if (b.kind === 'gate') {
+      ctx.beginPath();
+      ctx.moveTo(x, baseY + 4); ctx.lineTo(x, top + h * 0.25); ctx.lineTo(x + w * 0.5, top); ctx.lineTo(x + w, top + h * 0.25); ctx.lineTo(x + w, baseY + 4);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      // Puerta de perla en arco
+      ctx.fillStyle = '#fff8ee';
+      ctx.beginPath(); ctx.moveTo(x + w * 0.3, baseY + 4); ctx.lineTo(x + w * 0.3, top + h * 0.55); ctx.arc(x + w * 0.5, top + h * 0.55, w * 0.2, Math.PI, 0); ctx.lineTo(x + w * 0.7, baseY + 4); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,215,120,0.6)';
+      ctx.beginPath(); ctx.arc(x + w * 0.5, top + h * 0.55, w * 0.12, Math.PI, 0); ctx.fill();
+      // Columnas
+      ctx.strokeStyle = 'rgba(122,83,16,0.6)'; ctx.lineWidth = 2;
+      for (const f of [0.12, 0.2, 0.8, 0.88]) { ctx.beginPath(); ctx.moveTo(x + w * f, top + h * 0.35); ctx.lineTo(x + w * f, baseY); ctx.stroke(); }
+      ctx.strokeStyle = line; ctx.lineWidth = 3;
+      continue;
+    }
+    ctx.beginPath(); ctx.rect(x, top, w, h + 6); ctx.fill(); ctx.stroke();
+    // Techos
+    ctx.fillStyle = g;
+    if (b.kind === 'dome') {
+      ctx.beginPath(); ctx.arc(x + w / 2, top, w * 0.5, Math.PI, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x + w / 2, top - w * 0.5); ctx.lineTo(x + w / 2, top - w * 0.75); ctx.stroke();
+      ctx.fillStyle = '#fff8ee'; ctx.beginPath(); ctx.arc(x + w / 2, top - w * 0.78, 3.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    } else if (b.kind === 'spire') {
+      ctx.beginPath(); ctx.moveTo(x - 2, top); ctx.lineTo(x + w / 2, top - w * 1.6); ctx.lineTo(x + w + 2, top); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else {
+      ctx.beginPath();
+      const n = 4, cw = w / (n * 2 - 1);
+      for (let i = 0; i < n; i++) { ctx.rect(x + i * cw * 2, top - cw, cw, cw); }
+      ctx.fill(); ctx.stroke();
+    }
+    // Ventanas de luz
+    ctx.fillStyle = 'rgba(255,252,235,0.95)';
+    const cols = Math.max(1, Math.floor(w / 16)), rows = Math.max(1, Math.floor(h / 26));
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const wx = x + (c + 0.5) * (w / cols) - 3, wy = top + 12 + r * 26;
+      if (wy + 12 > baseY) continue;
+      ctx.beginPath(); ctx.moveTo(wx, wy + 12); ctx.lineTo(wx, wy + 4); ctx.arc(wx + 3, wy + 4, 3, Math.PI, 0); ctx.lineTo(wx + 6, wy + 12); ctx.closePath(); ctx.fill();
+    }
+  }
+  // Neblina luminosa: la ciudad queda al fondo y los tablones de oro se distinguen bien
+  const haze = ctx.createLinearGradient(0, baseY - ch * 1.25, 0, baseY - ch * 0.6);
+  haze.addColorStop(0, 'rgba(255,248,226,0)'); haze.addColorStop(1, 'rgba(255,248,226,0.42)');
+  ctx.fillStyle = haze;
+  ctx.fillRect(0, baseY - ch * 1.25, W, ch * 1.35);
+  // Muralla y nubes al pie
+  ctx.fillStyle = '#e9b23a'; ctx.strokeStyle = line;
+  ctx.beginPath(); ctx.rect(-10, baseY - ch * 0.12, W + 20, ch * 0.2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#ffe9a3';
+  for (let x = 0; x < W; x += 22) { ctx.beginPath(); ctx.rect(x, baseY - ch * 0.12 - 7, 11, 7); ctx.fill(); ctx.stroke(); }
+  for (let i = 0; i < 7; i++) {
+    const cx = (i / 6) * W, cy = baseY - ch * 0.02;
+    cloudPath(cx, cy, 1.2 * Math.max(scale, 0.8));
+    ctx.fillStyle = '#ffffff'; ctx.fill();
+  }
+  ctx.restore();
 }
 
 function drawSparkle(x, y, r) {
@@ -1108,10 +1446,10 @@ function cloudPath(x, y, s) {
     ctx.arc(x + cx * s, y + cy * s, r * s, 0, Math.PI * 2);
   }
 }
-function drawCloud(x, y, s, t) {
+function drawCloud(x, y, s, t, hv = 0) {
   // Contorno: se dibuja el trazo grueso y luego el relleno encima
   cloudPath(x, y, s);
-  ctx.strokeStyle = rgb(mix('6d8bb0', '2a2550', t), 0.9);
+  ctx.strokeStyle = rgb(lerpC(mix('6d8bb0', '2a2550', t), hexRgb('d8a640'), hv), 0.9);
   ctx.lineWidth = 5;
   ctx.stroke();
   ctx.fillStyle = rgb(mix('ffffff', '8c88b8', t));
@@ -1119,7 +1457,7 @@ function drawCloud(x, y, s, t) {
   // Sombra inferior
   ctx.save();
   cloudPath(x, y, s); ctx.clip();
-  ctx.fillStyle = rgb(mix('d9ecf7', '6e6aa0', t));
+  ctx.fillStyle = rgb(lerpC(mix('d9ecf7', '6e6aa0', t), hexRgb('ffe7a6'), hv));
   ctx.fillRect(x - 60 * s, y + 8 * s, 120 * s, 30 * s);
   ctx.restore();
 }
@@ -1202,10 +1540,17 @@ const WOOD = {
   fragile: { fill: '#dcc08e', light: '#f1dcb2', dark: '#a98a5c' },
 };
 
+// Desde 2000 m: tablones de oro y los que se rompen, de cristal
+const GOLD = {
+  normal: { fill: '#f2bd3a', light: '#fff0a8', dark: '#b07b0c' },
+  moving: { fill: '#ffd24d', light: '#fffbe0', dark: '#c28a00' },
+};
+const CRYSTAL = { fill: 'rgba(196,236,255,0.6)', light: 'rgba(255,255,255,0.95)', dark: 'rgba(110,170,215,0.85)' };
 function drawBar(b) {
   if (b.ground) return;
   const h = 13;
-  const c = WOOD[b.type];
+  const heaven = b.y < -HEAVEN_FROM_M * PX_PER_M;
+  const c = heaven ? (b.type === 'fragile' ? CRYSTAL : GOLD[b.type]) : WOOD[b.type];
   const seed = b.seed || 0.5;
   ctx.save();
   ctx.lineJoin = 'round';
@@ -1248,7 +1593,7 @@ function drawBar(b) {
     }
   }
   if (b.type === 'fragile') {
-    ctx.strokeStyle = OUTLINE;
+    ctx.strokeStyle = heaven ? 'rgba(255,255,255,0.95)' : OUTLINE;
     ctx.lineWidth = 1.6;
     const cx = b.x + b.w * (0.35 + seed * 0.3);
     ctx.beginPath();
@@ -1256,6 +1601,43 @@ function drawBar(b) {
     ctx.moveTo(cx + 1, b.y + 5); ctx.lineTo(cx + 9, b.y + 3);
     ctx.stroke();
   }
+  if (heaven) {
+    // Destello que recorre el oro / el cristal
+    ctx.save();
+    roundRect(b.x, b.y, b.w, h, 4); ctx.clip();
+    const sx = b.x - 20 + (((time * 60 + seed * 400) % (b.w + 140)));
+    ctx.fillStyle = b.type === 'fragile' ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.7)';
+    ctx.beginPath(); ctx.moveTo(sx, b.y + h); ctx.lineTo(sx + 7, b.y); ctx.lineTo(sx + 13, b.y); ctx.lineTo(sx + 6, b.y + h); ctx.closePath(); ctx.fill();
+    if (b.type === 'fragile') {
+      // Facetas del cristal
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let x = b.x + 10; x < b.x + b.w - 6; x += 16) { ctx.moveTo(x, b.y); ctx.lineTo(x + 6, b.y + h); }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+// Sheepy con su traje de fiesta (desde 1000 m): baila mientras salta
+const PARTY_HEAD = { x: 0.59, y: 0.07 }; // dónde va el gorrito de hélice (fracción de la imagen)
+function drawPartySheep(s) {
+  const im = img.party;
+  const h = SHEEP_H * 1.08, w = h * im.naturalWidth / im.naturalHeight;
+  ctx.save();
+  ctx.translate(s.x, s.y);
+  ctx.rotate((s.vx / MOVE) * 0.12 + Math.sin(time * 9) * 0.06);
+  const rising = Math.min(Math.max(-s.vy / JUMP, 0), 1);
+  const sq = s.squash;
+  ctx.scale(1 + 0.2 * sq - 0.05 * rising, 1 - 0.2 * sq + 0.07 * rising);
+  if (sq > 0.2) {
+    ctx.fillStyle = 'rgba(20,20,30,0.22)';
+    ctx.beginPath(); ctx.ellipse(0, 0, SHEEP_W * 0.42, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  if (s.face < 0) ctx.scale(-1, 1);
+  ctx.drawImage(im, -w / 2, -h, w, h);
+  if (boost) { ctx.translate(w * (PARTY_HEAD.x - 0.5), -h + h * PARTY_HEAD.y + 2); drawPropHat(boost.t, 1); }
   ctx.restore();
 }
 
@@ -1272,6 +1654,7 @@ function drawPart(name, lx, top, angle) {
 
 function drawSheep(s) {
   if (inv > 0 && Math.floor(inv * 12) % 2 === 0) return;
+  if (skin === 'party' && img.party.complete && img.party.naturalWidth) { drawPartySheep(s); return; }
   if (!img.body.complete || !img.body.naturalWidth) return;
   ctx.save();
   ctx.translate(s.x, s.y);

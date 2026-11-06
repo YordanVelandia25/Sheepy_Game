@@ -214,7 +214,9 @@ function genBar() {
   const pMove = m > 25 ? 0.1 + 0.25 * d : 0;
   const pFrag = m > 50 ? 0.08 + 0.17 * d : 0;
   const r = Math.random();
-  const type = r < pMove ? 'moving' : r < pMove + pFrag ? 'fragile' : 'normal';
+  let type = r < pMove ? 'moving' : r < pMove + pFrag ? 'fragile' : 'normal';
+  // En el cielo (desde 2000 m) no hay tablones fijos: solo los que se mueven y los que se rompen
+  if (-y / PX_PER_M >= HEAVEN_FROM_M) type = Math.random() < 0.3 ? 'fragile' : 'moving';
   const bar = { x, y, w, type, vx: 0, broken: false, fallV: 0, seed: Math.random() };
   if (type === 'moving') bar.vx = (40 + 70 * d) * (Math.random() < 0.5 ? -1 : 1);
   bars.push(bar);
@@ -237,7 +239,7 @@ function genBar() {
   }
   if (prize) foes.push({ kind: prize, bar, off: w / 2, x: 0, y: 0, r: 16, t: Math.random() * 6 });
   // Jesús: de pie en un tablón normal y ancho, en un extremo para que Sheepy pueda caer a su lado
-  if (!prize && type === 'normal' && w >= 70 && m >= nextJesusM && Math.random() < 0.06) {
+  if (!prize && (type === 'normal' || (m >= HEAVEN_FROM_M && type === 'moving')) && w >= 70 && m >= nextJesusM && Math.random() < 0.06) {
     nextJesusM = m + 230 + Math.random() * 200;
     bar.jesus = { kind: 'jesus', bar, off: Math.random() < 0.5 ? 20 : w - 20, x: 0, y: 0, r: 0, t: Math.random() * 6, say: '', sayT: 0 };
     foes.push(bar.jesus);
@@ -1546,10 +1548,79 @@ const GOLD = {
   moving: { fill: '#ffd24d', light: '#fffbe0', dark: '#c28a00' },
 };
 const CRYSTAL = { fill: 'rgba(196,236,255,0.6)', light: 'rgba(255,255,255,0.95)', dark: 'rgba(110,170,215,0.85)' };
+// Entre 1000 y 2000 m: plataformas espaciales de metal con neón y propulsores; las que se rompen son rocas de asteroide
+function drawSpaceBar(b) {
+  const h = 13, seed = b.seed || 0.5;
+  ctx.save();
+  ctx.lineJoin = 'round';
+  if (b.broken) { ctx.globalAlpha = 0.8; ctx.translate(b.x + b.w / 2, b.y); ctx.rotate(0.2); ctx.translate(-(b.x + b.w / 2), -b.y); }
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2;
+  if (b.type === 'fragile') {
+    // Roca de asteroide
+    ctx.fillStyle = '#8a7f8f';
+    ctx.beginPath();
+    ctx.moveTo(b.x + 3, b.y + 2);
+    const n = Math.max(4, Math.round(b.w / 14));
+    for (let i = 1; i < n; i++) ctx.lineTo(b.x + (b.w * i) / n, b.y + (i % 2 ? -1.5 : 1));
+    ctx.lineTo(b.x + b.w - 2, b.y + 3);
+    ctx.lineTo(b.x + b.w - 5, b.y + h + 1);
+    for (let i = n - 1; i > 0; i--) ctx.lineTo(b.x + (b.w * i) / n, b.y + h + (i % 2 ? 3 : 0.5));
+    ctx.lineTo(b.x + 1, b.y + h - 1);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(b.x + 5, b.y + 2, b.w - 12, 2.5);
+    ctx.fillStyle = '#625868';
+    for (const f of [0.22, 0.55, 0.8]) { ctx.beginPath(); ctx.ellipse(b.x + b.w * ((f + seed * 0.15) % 0.9 + 0.05), b.y + 7, 3.2, 2.2, 0, 0, Math.PI * 2); ctx.fill(); }
+    ctx.strokeStyle = OUTLINE; ctx.lineWidth = 1.6;
+    const cx = b.x + b.w * (0.35 + seed * 0.3);
+    ctx.beginPath(); ctx.moveTo(cx - 4, b.y); ctx.lineTo(cx + 1, b.y + 5); ctx.lineTo(cx - 2, b.y + h); ctx.moveTo(cx + 1, b.y + 5); ctx.lineTo(cx + 9, b.y + 3); ctx.stroke();
+    ctx.restore();
+    return;
+  }
+  const neon = b.type === 'moving' ? '#ff4fd8' : '#3fe0ff';
+  // Propulsores debajo, con llama que parpadea
+  for (const px of [b.x + 14, b.x + b.w - 14]) {
+    const fl = 5 + Math.sin(time * 30 + px) * 2;
+    const g = ctx.createLinearGradient(0, b.y + h, 0, b.y + h + 6 + fl);
+    g.addColorStop(0, neon); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(px - 4, b.y + h + 3); ctx.lineTo(px, b.y + h + 7 + fl); ctx.lineTo(px + 4, b.y + h + 3); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#39445e';
+    roundRect(px - 5, b.y + h - 2, 10, 6, 2); ctx.fill(); ctx.stroke();
+  }
+  // Placa de metal
+  ctx.fillStyle = b.type === 'moving' ? '#6f6a9c' : '#5f7196';
+  roundRect(b.x, b.y, b.w, h, 4); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.35)'; roundRect(b.x + 3, b.y + 2, b.w - 6, 2.5, 1.2); ctx.fill();
+  // Franja de neón
+  ctx.save();
+  ctx.shadowColor = neon; ctx.shadowBlur = 8;
+  ctx.fillStyle = neon; ctx.fillRect(b.x + 4, b.y + h - 4.5, b.w - 8, 2.2);
+  ctx.restore();
+  roundRect(b.x, b.y, b.w, h, 4); ctx.stroke();
+  // Remaches y paneles
+  ctx.fillStyle = '#c9d3ea';
+  ctx.beginPath(); ctx.arc(b.x + 5, b.y + 6.5, 1.3, 0, Math.PI * 2); ctx.arc(b.x + b.w - 5, b.y + 6.5, 1.3, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(29,26,26,0.45)'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = b.x + 22; x < b.x + b.w - 16; x += 22) { ctx.moveTo(x, b.y + 2); ctx.lineTo(x, b.y + h - 5); }
+  ctx.stroke();
+  if (b.type === 'moving') {
+    ctx.fillStyle = '#ffffff'; ctx.strokeStyle = OUTLINE; ctx.lineWidth = 1.2;
+    ctx.save(); ctx.shadowColor = neon; ctx.shadowBlur = 6;
+    const cx = b.x + b.w / 2, cy = b.y + 5.5;
+    for (const d of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(cx + d * 6, cy - 3.5); ctx.lineTo(cx + d * 12, cy); ctx.lineTo(cx + d * 6, cy + 3.5); ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
 function drawBar(b) {
   if (b.ground) return;
   const h = 13;
   const heaven = b.y < -HEAVEN_FROM_M * PX_PER_M;
+  if (!heaven && b.y < -SPACE_FROM_M * PX_PER_M) { drawSpaceBar(b); return; }
   const c = heaven ? (b.type === 'fragile' ? CRYSTAL : GOLD[b.type]) : WOOD[b.type];
   const seed = b.seed || 0.5;
   ctx.save();

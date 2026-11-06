@@ -220,21 +220,32 @@ function reset() {
   updateHud();
 }
 
+// Curva de dificultad: accesible hasta 1000 m, exigente hasta 2000 m y muy difícil después
+function difficulty(m) {
+  if (m < SPACE_FROM_M) return 0.55 * (m / SPACE_FROM_M);
+  if (m < HEAVEN_FROM_M) return 0.55 + 0.45 * ((m - SPACE_FROM_M) / (HEAVEN_FROM_M - SPACE_FROM_M));
+  return Math.min(1.35, 1 + 0.35 * ((m - HEAVEN_FROM_M) / 1000));
+}
+const heavenK = (m) => clamp01((m - HEAVEN_FROM_M) / 1000);   // 0 al entrar al cielo · 1 a los 3000 m
+
 function genBar() {
   const m = -topY / PX_PER_M;              // altura de este tablón en metros
-  const d = Math.min(m / 400, 1);          // dificultad 0..1
-  const gap = 55 + Math.random() * (45 + 75 * d);
+  const d = difficulty(m);                 // 0 al inicio · 0,55 a 1000 m · 1 a 2000 m · hasta 1,35 en el cielo
+  const dc = Math.min(d, 1);
+  const gap = Math.min(55 + Math.random() * (45 + 75 * d), 195);   // 195 px: lo máximo que alcanza un salto
   const y = topY - gap;
-  const w = Math.max(55, 100 - 40 * d + Math.random() * 20);
+  const w = Math.max(48, 100 - 40 * d + Math.random() * 20);
   const x = Math.random() * (GW - w);
-  const pMove = m > 25 ? 0.1 + 0.25 * d : 0;
-  const pFrag = m > 50 ? 0.08 + 0.17 * d : 0;
+  const pMove = m > 25 ? 0.08 + 0.27 * dc : 0;
+  const pFrag = m > 50 ? 0.06 + 0.19 * dc : 0;
   const r = Math.random();
   let type = r < pMove ? 'moving' : r < pMove + pFrag ? 'fragile' : 'normal';
   // En el cielo (desde 2000 m) no hay tablones fijos: solo los que se mueven y los que se rompen
   if (-y / PX_PER_M >= HEAVEN_FROM_M) {
     const q = Math.random();
-    type = q < 0.25 ? 'fragile' : q < 0.5 ? 'cloud' : 'moving';   // cristal · nube que se desvanece · oro que se mueve
+    const hk = heavenK(-y / PX_PER_M);
+    const pf = 0.27 + 0.08 * hk, pc = 0.27 + 0.1 * hk;               // más cristal y más nubes cuanto más alto
+    type = q < pf ? 'fragile' : q < pf + pc ? 'cloud' : 'moving';   // cristal · nube que se desvanece · oro que se mueve
   }
   const bar = { x, y, w, type, vx: 0, broken: false, fallV: 0, seed: Math.random() };
   if (type === 'moving') bar.vx = (40 + 70 * d) * (Math.random() < 0.5 ? -1 : 1);
@@ -258,7 +269,7 @@ function genBar() {
       prize = bm >= HEAVEN_FROM_M ? 'wings' : bm >= SPACE_FROM_M ? 'rocket' : 'hat';
       nextHatM = m + 180 + Math.random() * 120;
     }
-    else if (!prize && m >= SHIELD_FROM_M && m >= nextShieldM && Math.random() < 0.08) { prize = 'shield'; nextShieldM = m + 55 + Math.random() * 55; }
+    else if (!prize && m >= SHIELD_FROM_M && m >= nextShieldM && Math.random() < 0.08) { prize = 'shield'; nextShieldM = m + (m >= HEAVEN_FROM_M ? 150 : 55) + Math.random() * 55; }
     else if (!prize && m >= GLASSES_FROM_M && m >= nextGlassesM && Math.random() < 0.035) { prize = 'glasses'; nextGlassesM = m + 180 + Math.random() * 170; }
   }
   if (prize) foes.push({ kind: prize, bar, off: w / 2, x: 0, y: 0, r: 16, t: Math.random() * 6 });
@@ -279,25 +290,25 @@ function genBar() {
   //   0–1000 m: abejas y murciélagos · 1000–2000 m: drones y agujeros negros · desde 2000 m: burbujas
   const flyM = -(y + gap / 2) / PX_PER_M;
   if (flyM < SPACE_FROM_M) {
-    if (m >= BATS_FROM_M && Math.random() < 0.04 + 0.1 * batD) flyer('bat', batD, 60);
-    else if (m >= BEES_FROM_M && Math.random() < 0.06 + 0.16 * beeD) flyer('bee', beeD, 50);
+    if (m >= BATS_FROM_M && Math.random() < 0.025 + 0.035 * batD) flyer('bat', batD * 0.6, 50);
+    else if (m >= BEES_FROM_M && Math.random() < 0.04 + 0.05 * beeD) flyer('bee', beeD * 0.6, 45);
   } else if (flyM < HEAVEN_FROM_M) {
-    if (flyM >= nextHoleM && Math.random() < 0.12) {
-      nextHoleM = flyM + HOLE_SPACING_M + Math.random() * 60;
+    if (flyM >= nextHoleM && Math.random() < 0.14) {
+      nextHoleM = flyM + HOLE_SPACING_M * (1.2 - 0.5 * clamp01((flyM - SPACE_FROM_M) / 1000)) + Math.random() * 50;
       foes.push({ kind: 'hole', x: 50 + Math.random() * (GW - 100), y: y + gap / 2, baseY: y + gap / 2, t: Math.random() * 6, r: 0 });
-    } else if (Math.random() < 0.2) flyer('drone', 1, 60);
-  } else if (Math.random() < 0.09) {
+    } else if (Math.random() < 0.16 + 0.16 * clamp01((flyM - SPACE_FROM_M) / 1000)) flyer('drone', clamp01((flyM - SPACE_FROM_M) / 1000), 70);
+  } else if (Math.random() < 0.1 + 0.08 * heavenK(flyM)) {
     foes.push({ kind: 'bubble', x: 30 + Math.random() * (GW - 60), baseY: y + gap / 2, y: y + gap / 2, vx: (25 + Math.random() * 25) * (Math.random() < 0.5 ? -1 : 1), t: Math.random() * 6, r: 18 });
   }
 
   // En el tablón: resortes desde el inicio, cardos desde 100 m y pinchos desde 300 m (uno por tablón)
   const off = Math.random() < 0.5 ? 16 : w - 16;
-  if (!occupied && type !== 'fragile' && type !== 'cloud' && m > 8 && Math.random() < SPRING_CHANCE) {
+  if (!occupied && type !== 'fragile' && type !== 'cloud' && m > 8 && Math.random() < (m >= HEAVEN_FROM_M ? SPRING_CHANCE * 0.4 : SPRING_CHANCE)) {
     bar.spring = { kind: 'spring', bar, off, x: 0, y: 0, r: 0, squish: 0 };
     foes.push(bar.spring);
     // A veces hay un escudo flotando justo encima del resorte (entre 6 y 14 m),
     // para atraparlo en el salto y subir protegida
-    if (m >= 20 && Math.random() < SPRING_SHIELD_CHANCE) {
+    if (m >= 20 && Math.random() < (m >= HEAVEN_FROM_M ? 0.12 : SPRING_SHIELD_CHANCE)) {
       const sx = Math.min(Math.max(x + off, 24), GW - 24);
       const fy = y - (6 + Math.random() * 8) * PX_PER_M;
       foes.push({ kind: 'shield', bar: null, fx: sx, fy, x: sx, y: fy, r: 16, t: Math.random() * 6 });
@@ -307,9 +318,9 @@ function genBar() {
     const bm = -y / PX_PER_M;
     if (bm >= SPACE_FROM_M) {
       // Espacio: minas espaciales sobre los meteoritos (misma mecánica que cardos y pinchos)
-      if (bm < HEAVEN_FROM_M && Math.random() < 0.17) foes.push({ kind: 'mine', bar, off, x: 0, y: 0, r: 12, t: Math.random() * 6 });
-    } else if (m >= SPIKES_FROM_M && Math.random() < 0.05 + 0.1 * spikeD) foes.push({ kind: 'spike', bar, off, x: 0, y: 0, r: 12 });
-    else if (m >= SAFE_M && Math.random() < 0.08 + 0.14 * thornD) foes.push({ kind: 'thorn', bar, off, x: 0, y: 0, r: 12 });
+      if (bm < HEAVEN_FROM_M && Math.random() < 0.12 + 0.12 * clamp01((bm - SPACE_FROM_M) / 1000)) foes.push({ kind: 'mine', bar, off, x: 0, y: 0, r: 12, t: Math.random() * 6 });
+    } else if (m >= SPIKES_FROM_M && Math.random() < 0.03 + 0.04 * spikeD) foes.push({ kind: 'spike', bar, off, x: 0, y: 0, r: 12 });
+    else if (m >= SAFE_M && Math.random() < 0.05 + 0.05 * thornD) foes.push({ kind: 'thorn', bar, off, x: 0, y: 0, r: 12 });
   }
   topY = y;
 }
@@ -904,7 +915,7 @@ function update(dt) {
     if (wind.warn > 0) wind.warn -= dt;
     else if (playing) {
       const k = Math.min(1, (wind.t - 0.9) / 0.4, (WIND_TIME + 0.9 - wind.t) / 0.5);
-      sheep.x += wind.dir * WIND_PUSH * Math.max(0, k) * dt;
+      sheep.x += wind.dir * WIND_PUSH * (1 + 0.5 * heavenK(meters())) * Math.max(0, k) * dt;
     }
     if (wind.t > WIND_TIME + 0.9) wind = null;
   }
@@ -1093,22 +1104,22 @@ function update(dt) {
   const crossing = foes.some((f) => CROSSERS.has(f.kind));
   const mNow = meters();
   if (mNow >= nextFlipM && mNow < SPACE_FROM_M && !boost && !crossing) {          // chancleta: solo de día (300–1000 m)
-    nextFlipM = mNow + 170 + Math.random() * 160;
+    nextFlipM = mNow + 220 + Math.random() * 180;
     spawnCrosser('flip');
   } else if (mNow >= nextStarM && mNow < HEAVEN_FROM_M && !boost && !crossing) {   // estrella fugaz: solo en el espacio
-    nextStarM = meters() + 200 + Math.random() * 200;
+    nextStarM = mNow + 220 - 90 * clamp01((mNow - SPACE_FROM_M) / 1000) + Math.random() * 140;
     spawnCrosser('star');
   }
   // Neblina en el cielo (desde 2000 m): tapa la parte de arriba de la pantalla unos segundos
   if (fog) { fog.t += dt; if (fog.t > FOG_TIME) fog = null; }
   if (mNow >= HEAVEN_FROM_M && mNow >= nextFogM && !fog && !wind) {
-    nextFogM = mNow + 140 + Math.random() * 120;
+    nextFogM = mNow + 140 - 60 * heavenK(mNow) + Math.random() * (110 - 40 * heavenK(mNow));
     fog = { t: 0 };
     showAnnounce('¡Uy, no veo nada!', '#6b7fa8');
   }
   // Ráfagas de viento en el cielo (desde 2000 m)
   if (mNow >= HEAVEN_FROM_M && mNow >= nextWindM && !wind && !fog) {
-    nextWindM = mNow + 110 + Math.random() * 110;
+    nextWindM = mNow + 110 - 50 * heavenK(mNow) + Math.random() * (100 - 40 * heavenK(mNow));
     wind = { dir: Math.random() < 0.5 ? -1 : 1, t: 0, warn: 0.9 };
     showAnnounce('¡Ráfaga de viento!', '#2f7fd0');
     sfx.wind();

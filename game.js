@@ -251,8 +251,12 @@ function genBar() {
     kind, x: 20 + Math.random() * (GW - 40), baseY: y + gap / 2, y: y + gap / 2,
     vx: (speed + 70 * dd) * (Math.random() < 0.5 ? -1 : 1), t: Math.random() * 6, r: 13,
   });
-  if (m >= BATS_FROM_M && Math.random() < 0.04 + 0.1 * batD) flyer('bat', batD, 60);
-  else if (m >= BEES_FROM_M && Math.random() < 0.06 + 0.16 * beeD) flyer('bee', beeD, 50);
+  // (desde 1000 m ya no hay abejas ni murciélagos)
+  const flyM = -(y + gap / 2) / PX_PER_M;
+  if (flyM < SPACE_FROM_M) {
+    if (m >= BATS_FROM_M && Math.random() < 0.04 + 0.1 * batD) flyer('bat', batD, 60);
+    else if (m >= BEES_FROM_M && Math.random() < 0.06 + 0.16 * beeD) flyer('bee', beeD, 50);
+  }
 
   // En el tablón: resortes desde el inicio, cardos desde 100 m y pinchos desde 300 m (uno por tablón)
   const off = Math.random() < 0.5 ? 16 : w - 16;
@@ -1548,70 +1552,93 @@ const GOLD = {
   moving: { fill: '#ffd24d', light: '#fffbe0', dark: '#c28a00' },
 };
 const CRYSTAL = { fill: 'rgba(196,236,255,0.6)', light: 'rgba(255,255,255,0.95)', dark: 'rgba(110,170,215,0.85)' };
-// Entre 1000 y 2000 m: plataformas espaciales de metal con neón y propulsores; las que se rompen son rocas de asteroide
+// Entre 1000 y 2000 m: meteoritos flotantes.
+//  normal: roca oscura con grietas de lava · moving: además deja una estela de fuego · fragile: roca gris que se desmorona
+function meteorPath(b, h, seed) {
+  const n = Math.max(5, Math.round(b.w / 12));
+  ctx.beginPath();
+  for (let i = 0; i <= n; i++) {                    // borde de arriba, ondulado
+    const x = b.x + (b.w * i) / n, j = Math.sin(i * 2.1 + seed * 9) * 1.8;
+    if (i === 0) ctx.moveTo(x + 2, b.y + 3 + j); else ctx.lineTo(x - (i === n ? 2 : 0), b.y + j + (i === n ? 3 : 0));
+  }
+  for (let i = n; i >= 0; i--) {                    // panza de abajo, más gruesa en el centro
+    const x = b.x + (b.w * i) / n, bulge = Math.sin((i / n) * Math.PI) * 7, j = Math.cos(i * 1.7 + seed * 5) * 1.5;
+    ctx.lineTo(x, b.y + h - 2 + bulge + j);
+  }
+  ctx.closePath();
+}
 function drawSpaceBar(b) {
   const h = 13, seed = b.seed || 0.5;
   ctx.save();
-  ctx.lineJoin = 'round';
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
   if (b.broken) { ctx.globalAlpha = 0.8; ctx.translate(b.x + b.w / 2, b.y); ctx.rotate(0.2); ctx.translate(-(b.x + b.w / 2), -b.y); }
-  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2;
-  if (b.type === 'fragile') {
-    // Roca de asteroide
-    ctx.fillStyle = '#8a7f8f';
-    ctx.beginPath();
-    ctx.moveTo(b.x + 3, b.y + 2);
-    const n = Math.max(4, Math.round(b.w / 14));
-    for (let i = 1; i < n; i++) ctx.lineTo(b.x + (b.w * i) / n, b.y + (i % 2 ? -1.5 : 1));
-    ctx.lineTo(b.x + b.w - 2, b.y + 3);
-    ctx.lineTo(b.x + b.w - 5, b.y + h + 1);
-    for (let i = n - 1; i > 0; i--) ctx.lineTo(b.x + (b.w * i) / n, b.y + h + (i % 2 ? 3 : 0.5));
-    ctx.lineTo(b.x + 1, b.y + h - 1);
-    ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(b.x + 5, b.y + 2, b.w - 12, 2.5);
-    ctx.fillStyle = '#625868';
-    for (const f of [0.22, 0.55, 0.8]) { ctx.beginPath(); ctx.ellipse(b.x + b.w * ((f + seed * 0.15) % 0.9 + 0.05), b.y + 7, 3.2, 2.2, 0, 0, Math.PI * 2); ctx.fill(); }
-    ctx.strokeStyle = OUTLINE; ctx.lineWidth = 1.6;
-    const cx = b.x + b.w * (0.35 + seed * 0.3);
-    ctx.beginPath(); ctx.moveTo(cx - 4, b.y); ctx.lineTo(cx + 1, b.y + 5); ctx.lineTo(cx - 2, b.y + h); ctx.moveTo(cx + 1, b.y + 5); ctx.lineTo(cx + 9, b.y + 3); ctx.stroke();
+  const fragile = b.type === 'fragile';
+  // Estela de fuego de los que se mueven (hacia atrás)
+  if (b.type === 'moving') {
+    const back = b.vx >= 0 ? -1 : 1, x0 = back < 0 ? b.x + 6 : b.x + b.w - 6;
+    for (const [len, col, wd] of [[46, 'rgba(255,120,40,0.55)', 11], [30, 'rgba(255,210,80,0.8)', 6]]) {
+      const g = ctx.createLinearGradient(x0, 0, x0 + back * len, 0);
+      g.addColorStop(0, col); g.addColorStop(1, 'rgba(255,120,40,0)');
+      ctx.fillStyle = g;
+      const fl = Math.sin(time * 25 + seed * 10) * 2;
+      ctx.beginPath(); ctx.moveTo(x0, b.y + 4 - wd / 2 + 4); ctx.lineTo(x0 + back * (len + fl), b.y + 8); ctx.lineTo(x0, b.y + 4 + wd / 2 + 4); ctx.closePath(); ctx.fill();
+    }
+  }
+  // Brillo caliente alrededor
+  if (!fragile) {
+    ctx.save(); ctx.shadowColor = 'rgba(255,110,40,0.75)'; ctx.shadowBlur = b.type === 'moving' ? 14 : 8;
+    meteorPath(b, h, seed); ctx.fillStyle = '#5b3a33'; ctx.fill();
     ctx.restore();
-    return;
   }
-  const neon = b.type === 'moving' ? '#ff4fd8' : '#3fe0ff';
-  // Propulsores debajo, con llama que parpadea
-  for (const px of [b.x + 14, b.x + b.w - 14]) {
-    const fl = 5 + Math.sin(time * 30 + px) * 2;
-    const g = ctx.createLinearGradient(0, b.y + h, 0, b.y + h + 6 + fl);
-    g.addColorStop(0, neon); g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.moveTo(px - 4, b.y + h + 3); ctx.lineTo(px, b.y + h + 7 + fl); ctx.lineTo(px + 4, b.y + h + 3); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#39445e';
-    roundRect(px - 5, b.y + h - 2, 10, 6, 2); ctx.fill(); ctx.stroke();
+  // Roca
+  meteorPath(b, h, seed);
+  ctx.fillStyle = fragile ? '#9a909f' : '#6b4339';
+  ctx.fill();
+  ctx.save(); meteorPath(b, h, seed); ctx.clip();
+  // Luz arriba y sombra abajo
+  ctx.fillStyle = fragile ? 'rgba(255,255,255,0.3)' : 'rgba(255,190,150,0.35)'; ctx.fillRect(b.x, b.y - 2, b.w, 5);
+  ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(b.x, b.y + h, b.w, 12);
+  // Cráteres
+  ctx.fillStyle = fragile ? '#71677a' : '#4a2c26';
+  for (const f of [0.18, 0.47, 0.76]) {
+    const cx = b.x + b.w * ((f + seed * 0.13) % 0.88 + 0.06), cy = b.y + 8 + ((f * 7) % 3);
+    ctx.beginPath(); ctx.ellipse(cx, cy, 3.6, 2.4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = fragile ? 'rgba(255,255,255,0.25)' : 'rgba(255,180,140,0.25)';
+    ctx.beginPath(); ctx.ellipse(cx + 0.8, cy + 0.9, 2.2, 1.2, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = fragile ? '#71677a' : '#4a2c26';
   }
-  // Placa de metal
-  ctx.fillStyle = b.type === 'moving' ? '#6f6a9c' : '#5f7196';
-  roundRect(b.x, b.y, b.w, h, 4); ctx.fill();
-  ctx.fillStyle = 'rgba(255,255,255,0.35)'; roundRect(b.x + 3, b.y + 2, b.w - 6, 2.5, 1.2); ctx.fill();
-  // Franja de neón
-  ctx.save();
-  ctx.shadowColor = neon; ctx.shadowBlur = 8;
-  ctx.fillStyle = neon; ctx.fillRect(b.x + 4, b.y + h - 4.5, b.w - 8, 2.2);
+  // Grietas de lava (normales y móviles)
+  if (!fragile) {
+    ctx.strokeStyle = '#ffb347'; ctx.lineWidth = 1.6;
+    ctx.save(); ctx.shadowColor = '#ff7a1a'; ctx.shadowBlur = 6;
+    const lx = b.x + b.w * (0.3 + seed * 0.4);
+    ctx.beginPath(); ctx.moveTo(lx - 10, b.y + 5); ctx.lineTo(lx - 3, b.y + 9); ctx.lineTo(lx + 4, b.y + 6); ctx.lineTo(lx + 11, b.y + 12);
+    ctx.moveTo(lx - 3, b.y + 9); ctx.lineTo(lx - 5, b.y + 15);
+    ctx.stroke(); ctx.restore();
+  }
   ctx.restore();
-  roundRect(b.x, b.y, b.w, h, 4); ctx.stroke();
-  // Remaches y paneles
-  ctx.fillStyle = '#c9d3ea';
-  ctx.beginPath(); ctx.arc(b.x + 5, b.y + 6.5, 1.3, 0, Math.PI * 2); ctx.arc(b.x + b.w - 5, b.y + 6.5, 1.3, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = 'rgba(29,26,26,0.45)'; ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let x = b.x + 22; x < b.x + b.w - 16; x += 22) { ctx.moveTo(x, b.y + 2); ctx.lineTo(x, b.y + h - 5); }
-  ctx.stroke();
+  // Contorno
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2;
+  meteorPath(b, h, seed); ctx.stroke();
+  // Grieta de la que se rompe
+  if (fragile) {
+    ctx.lineWidth = 1.6;
+    const cx = b.x + b.w * (0.35 + seed * 0.3);
+    ctx.beginPath(); ctx.moveTo(cx - 4, b.y); ctx.lineTo(cx + 1, b.y + 6); ctx.lineTo(cx - 2, b.y + h + 4); ctx.moveTo(cx + 1, b.y + 6); ctx.lineTo(cx + 9, b.y + 4); ctx.stroke();
+    // Piedritas sueltas debajo
+    ctx.fillStyle = '#9a909f';
+    for (const [dx, dy, r] of [[0.3, 20, 2], [0.62, 22, 1.6], [0.8, 18, 1.3]]) {
+      const yy = b.y + dy + Math.sin(time * 3 + dx * 10) * 1.5;
+      ctx.beginPath(); ctx.arc(b.x + b.w * dx, yy, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+  }
+  // Flechas de las que se mueven
   if (b.type === 'moving') {
     ctx.fillStyle = '#ffffff'; ctx.strokeStyle = OUTLINE; ctx.lineWidth = 1.2;
-    ctx.save(); ctx.shadowColor = neon; ctx.shadowBlur = 6;
     const cx = b.x + b.w / 2, cy = b.y + 5.5;
     for (const d of [-1, 1]) {
       ctx.beginPath(); ctx.moveTo(cx + d * 6, cy - 3.5); ctx.lineTo(cx + d * 12, cy); ctx.lineTo(cx + d * 6, cy + 3.5); ctx.closePath(); ctx.fill(); ctx.stroke();
     }
-    ctx.restore();
   }
   ctx.restore();
 }

@@ -41,7 +41,8 @@ const MAX_HEARTS = 3;
 const NIGHT_FROM_M = 800;    // de día hasta 800 m; de 800 a 1000 m se hace de noche
 const SPACE_FROM_M = 1000;   // de 1000 a 2000 m: espacio exterior
 const HEAVEN_FROM_M = 2000;  // desde 2000 m: el cielo y la ciudad de oro
-const PARTY_FROM_M = 1000;   // a los 1000 m Sheepy se pone su traje de fiesta
+const ASTRO_FROM_M = 1000;   // a los 1000 m Sheepy se pone su traje espacial
+const PARTY_FROM_M = 2000;   // y a los 2000 m, su traje de fiesta
 const BONUS_HEARTS = 4; // solo el tablón de Jesús da el cuarto sendauro
 // Progresión de obstáculos y premios (en metros)
 const SAFE_M = 100;        // 0–99 m: sin obstáculos
@@ -222,8 +223,8 @@ function reset() {
 
 // Curva de dificultad: accesible hasta 1000 m, exigente hasta 2000 m y muy difícil después
 function difficulty(m) {
-  if (m < SPACE_FROM_M) return 0.55 * (m / SPACE_FROM_M);
-  if (m < HEAVEN_FROM_M) return 0.55 + 0.45 * ((m - SPACE_FROM_M) / (HEAVEN_FROM_M - SPACE_FROM_M));
+  if (m < SPACE_FROM_M) return 0.55 * (m / SPACE_FROM_M) + 0.12 * clamp01((m - 700) / 300);   // sube un poco desde 700 m
+  if (m < HEAVEN_FROM_M) return 0.67 + 0.33 * ((m - SPACE_FROM_M) / (HEAVEN_FROM_M - SPACE_FROM_M));
   return Math.min(1.35, 1 + 0.35 * ((m - HEAVEN_FROM_M) / 1000));
 }
 const heavenK = (m) => clamp01((m - HEAVEN_FROM_M) / 1000);   // 0 al entrar al cielo · 1 a los 3000 m
@@ -254,6 +255,7 @@ function genBar() {
 
   // Obstáculos: van apareciendo poco a poco y cada uno se vuelve más frecuente con la altura
   const ramp = (from, span) => Math.min(Math.max((m - from) / span, 0), 1);
+  const late = 1 + 0.45 * ramp(700, 300);   // desde 700 m salen más enemigos
   const thornD = ramp(SAFE_M, 300), beeD = ramp(BEES_FROM_M, 400);
   const spikeD = ramp(SPIKES_FROM_M, 400), batD = ramp(BATS_FROM_M, 400);
 
@@ -290,8 +292,8 @@ function genBar() {
   //   0–1000 m: abejas y murciélagos · 1000–2000 m: drones y agujeros negros · desde 2000 m: burbujas
   const flyM = -(y + gap / 2) / PX_PER_M;
   if (flyM < SPACE_FROM_M) {
-    if (m >= BATS_FROM_M && Math.random() < 0.025 + 0.035 * batD) flyer('bat', batD * 0.6, 50);
-    else if (m >= BEES_FROM_M && Math.random() < 0.04 + 0.05 * beeD) flyer('bee', beeD * 0.6, 45);
+    if (m >= BATS_FROM_M && Math.random() < (0.025 + 0.035 * batD) * late) flyer('bat', batD * 0.6, 50);
+    else if (m >= BEES_FROM_M && Math.random() < (0.04 + 0.05 * beeD) * late) flyer('bee', beeD * 0.6, 45);
   } else if (flyM < HEAVEN_FROM_M) {
     if (flyM >= nextHoleM && Math.random() < 0.14) {
       nextHoleM = flyM + HOLE_SPACING_M * (1.2 - 0.5 * clamp01((flyM - SPACE_FROM_M) / 1000)) + Math.random() * 50;
@@ -319,8 +321,8 @@ function genBar() {
     if (bm >= SPACE_FROM_M) {
       // Espacio: minas espaciales sobre los meteoritos (misma mecánica que cardos y pinchos)
       if (bm < HEAVEN_FROM_M && Math.random() < 0.12 + 0.12 * clamp01((bm - SPACE_FROM_M) / 1000)) foes.push({ kind: 'mine', bar, off, x: 0, y: 0, r: 12, t: Math.random() * 6 });
-    } else if (m >= SPIKES_FROM_M && Math.random() < 0.03 + 0.04 * spikeD) foes.push({ kind: 'spike', bar, off, x: 0, y: 0, r: 12 });
-    else if (m >= SAFE_M && Math.random() < 0.05 + 0.05 * thornD) foes.push({ kind: 'thorn', bar, off, x: 0, y: 0, r: 12 });
+    } else if (m >= SPIKES_FROM_M && Math.random() < (0.03 + 0.04 * spikeD) * late) foes.push({ kind: 'spike', bar, off, x: 0, y: 0, r: 12 });
+    else if (m >= SAFE_M && Math.random() < (0.05 + 0.05 * thornD) * late) foes.push({ kind: 'thorn', bar, off, x: 0, y: 0, r: 12 });
   }
   topY = y;
 }
@@ -1094,7 +1096,11 @@ function update(dt) {
   }
 
   // A los 1000 m Sheepy se pone su traje de fiesta
-  if (skin === 'classic' && meters() >= PARTY_FROM_M) {
+  if (skin === 'classic' && meters() >= ASTRO_FROM_M) {
+    skin = 'astro';
+    for (const col of ['#ffffff', '#bfe9ff', '#ff7751', '#ffd23f']) puff(sheep.x, sheep.y - SHEEP_H * 0.5, col, 6, 200);
+    sfx.record();
+  } else if (skin === 'astro' && meters() >= PARTY_FROM_M) {
     skin = 'party';
     for (const col of ['#ff4fb8', '#ffe14d', '#4fe36b', '#3fc4ff', '#b35cff']) puff(sheep.x, sheep.y - SHEEP_H * 0.5, col, 5, 200);
     sfx.record();
@@ -1901,6 +1907,112 @@ function drawPart(name, lx, top, angle) {
   ctx.restore();
 }
 
+// ---------- Traje espacial (1000–2000 m) sobre la Sheepy original ----------
+// Se dibuja en coordenadas del sprite (213 × 363 px) para que encaje con cuerpo, brazos y cabeza.
+const SUIT = { white: '#f7f8fb', shade: '#d6dce8', orange: '#ff7751', grey: '#9aa3b5', line: OUTLINE };
+// Manga del traje sobre cada brazo, en el mismo giro del brazo (se mueve con él)
+function drawSleeve(name, lx, top, angle) {
+  const P = PARTS[name], im = img[name];
+  if (!im.complete || !im.naturalWidth) return;
+  const flip = name === 'armR';
+  ctx.save();
+  ctx.translate(lx + P.px * SPR_K, top + P.py * SPR_K);
+  ctx.rotate(angle);
+  ctx.translate((P.x - P.px) * SPR_K, (P.y - P.py) * SPR_K);
+  ctx.scale(SPR_K, SPR_K);
+  if (flip) { ctx.translate(42, 0); ctx.scale(-1, 1); }
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(14, -6); ctx.lineTo(41, -6);
+  ctx.quadraticCurveTo(38, 30, 31, 70);
+  ctx.lineTo(1, 70);
+  ctx.quadraticCurveTo(2, 30, 14, -6);
+  ctx.closePath();
+  const g = ctx.createLinearGradient(0, 0, 42, 0);
+  g.addColorStop(0, SUIT.shade); g.addColorStop(0.45, SUIT.white); g.addColorStop(1, SUIT.shade);
+  ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = SUIT.line; ctx.lineWidth = 5; ctx.stroke();
+  // Puño naranja
+  ctx.fillStyle = SUIT.orange;
+  ctx.beginPath(); ctx.roundRect(-1, 60, 34, 12, 5); ctx.fill(); ctx.stroke();
+  // Arrugas
+  ctx.strokeStyle = 'rgba(29,26,26,0.35)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(10, 28); ctx.quadraticCurveTo(20, 32, 32, 26); ctx.moveTo(6, 46); ctx.quadraticCurveTo(16, 50, 30, 44); ctx.stroke();
+  ctx.restore();
+}
+function drawSpaceSuit(lx, top) {
+  ctx.save();
+  ctx.translate(lx, top);
+  ctx.scale(SPR_K, SPR_K);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  // Cuerpo del traje (cubre la lana del cuerpo; asoma un poco de lana en los hombros)
+  const torso = () => {
+    ctx.beginPath();
+    ctx.moveTo(62, 166);
+    ctx.quadraticCurveTo(34, 172, 33, 200);
+    ctx.lineTo(34, 258);
+    ctx.quadraticCurveTo(38, 298, 80, 300);
+    ctx.lineTo(134, 300);
+    ctx.quadraticCurveTo(178, 298, 181, 258);
+    ctx.lineTo(182, 200);
+    ctx.quadraticCurveTo(180, 172, 152, 166);
+    ctx.closePath();
+  };
+  const g = ctx.createLinearGradient(30, 0, 185, 0);
+  g.addColorStop(0, SUIT.shade); g.addColorStop(0.35, SUIT.white); g.addColorStop(0.7, SUIT.white); g.addColorStop(1, SUIT.shade);
+  torso(); ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = SUIT.line; ctx.lineWidth = 6; ctx.stroke();
+  ctx.save(); torso(); ctx.clip();
+  // Franjas naranjas en los hombros y cinturón
+  ctx.fillStyle = SUIT.orange;
+  ctx.fillRect(30, 178, 30, 12); ctx.fillRect(155, 178, 30, 12);
+  ctx.fillStyle = SUIT.grey; ctx.fillRect(30, 262, 160, 14);
+  ctx.strokeStyle = SUIT.line; ctx.lineWidth = 4;
+  ctx.strokeRect(30, 262, 160, 14);
+  ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.roundRect(98, 260, 20, 18, 4); ctx.fill(); ctx.stroke();
+  ctx.restore();
+  // Panel del pecho con botones
+  ctx.strokeStyle = SUIT.line; ctx.lineWidth = 4;
+  ctx.fillStyle = '#c9d3ea'; ctx.beginPath(); ctx.roundRect(82, 196, 50, 38, 8); ctx.fill(); ctx.stroke();
+  const blinkOn = Math.sin(time * 5) > 0;
+  for (const [bx, col] of [[94, '#ff4d4d'], [107, '#3fc4ff'], [120, '#ffd23f']]) {
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(bx, 208, 5, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 2.5; ctx.stroke();
+  }
+  ctx.fillStyle = blinkOn ? '#5cff8a' : '#1f6b3a';
+  ctx.beginPath(); ctx.roundRect(90, 220, 34, 7, 3); ctx.fill(); ctx.stroke();
+  // Insignia con estrella
+  ctx.fillStyle = '#3f6fd0'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(160, 222, 11, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5, r = i % 2 ? 3 : 7; ctx.lineTo(160 + Math.cos(a) * r, 222 + Math.sin(a) * r); }
+  ctx.closePath(); ctx.fill();
+  // Casco de cristal alrededor de la cabeza (orejas incluidas)
+  const cx = 106, cy = 98, R = 102;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(-20, -40, 260, 214); ctx.clip();     // la parte de abajo queda dentro del cuello
+  const glass = ctx.createRadialGradient(cx - 30, cy - 40, 10, cx, cy, R);
+  glass.addColorStop(0, 'rgba(255,255,255,0.28)'); glass.addColorStop(0.75, 'rgba(190,230,255,0.14)'); glass.addColorStop(1, 'rgba(120,190,240,0.35)');
+  ctx.fillStyle = glass; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = SUIT.line; ctx.lineWidth = 7; ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, R - 6, 0, Math.PI * 2); ctx.stroke();
+  // Reflejos
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 9;
+  ctx.beginPath(); ctx.arc(cx, cy, R - 18, Math.PI * 1.08, Math.PI * 1.38); ctx.stroke();
+  ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(cx, cy, R - 18, Math.PI * 1.45, Math.PI * 1.52); ctx.stroke();
+  ctx.restore();
+  // Cuello del traje (aro)
+  ctx.fillStyle = SUIT.grey; ctx.strokeStyle = SUIT.line; ctx.lineWidth = 6;
+  ctx.beginPath(); ctx.ellipse(107, 172, 60, 11, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.beginPath(); ctx.ellipse(96, 168, 30, 3, 0, 0, Math.PI * 2); ctx.fill();
+  // Antena con luz
+  ctx.strokeStyle = SUIT.line; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(150, 14); ctx.lineTo(166, -14); ctx.stroke();
+  ctx.fillStyle = blinkOn ? '#ff4d4d' : '#ffb3b3';
+  ctx.beginPath(); ctx.arc(167, -16, 8, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 4; ctx.stroke();
+  ctx.restore();
+}
+
 function drawSheep(s) {
   if (inv > 0 && Math.floor(inv * 12) % 2 === 0) return;
   if (skin === 'party' && img.party.complete && img.party.naturalWidth) { drawPartySheep(s); return; }
@@ -1926,6 +2038,7 @@ function drawSheep(s) {
   // Brazos y orejas van detrás del cuerpo: su base queda tapada por la lana
   drawPart('armL', lx, top, s.arm);
   drawPart('armR', lx, top, -s.arm);
+  if (skin === 'astro') { drawSleeve('armL', lx, top, s.arm); drawSleeve('armR', lx, top, -s.arm); }
   const ear = Math.min(Math.max(s.ear, -0.7), 1.2); // hacia abajo se esconderían tras la cabeza
   drawPart('earL', lx, top, ear);
   drawPart('earR', lx, top, -ear);
@@ -1951,6 +2064,7 @@ function drawSheep(s) {
       ctx.beginPath(); ctx.arc(x, y - 3 * SPR_K, 7 * SPR_K, 0.25 * Math.PI, 0.75 * Math.PI); ctx.stroke();
     }
   }
+  if (skin === 'astro') drawSpaceSuit(lx, top);
   if (boost && boost.style !== 'rocket' && boost.style !== 'wings') { ctx.translate(0, top + 4); drawPropHat(boost.t, 1); }
   ctx.restore();
 }

@@ -56,7 +56,9 @@ const BATS_FROM_M = 450;   // murciélagos (como las abejas)
 const HAT_FROM_M = 350;    // impulso: gorrito (<1000 m), mochila cohete (1000–2000 m), alas de ángel (>2000 m)
 const HOLE_SPACING_M = 70; // agujeros negros (1000–2000 m): atraen a Sheepy sin hacerle daño
 const HOLE_R = 120, HOLE_PULL = 150;
-const BUBBLE_TIME = 2.4;   // burbujas (>2000 m): Sheepy queda flotando un momento
+const BUBBLE_TIME = 2.4;
+const CLOUD_VANISH = 0.7;  // tablones de nube (>2000 m): se desvanecen poco después de pisarlos
+const FOG_TIME = 4.5;      // neblina (>2000 m): tapa parte de la pantalla unos segundos   // burbujas (>2000 m): Sheepy queda flotando un momento
 const WIND_TIME = 3.2;     // ráfagas de viento (>2000 m): empujan a Sheepy hacia un lado
 const WIND_PUSH = 170;    // gorrito con hélice: impulsa a Sheepy 50 m (poco frecuente)
 const HAT_BOOST_M = 50;
@@ -128,6 +130,7 @@ const sfx = {
   wind: () => { tone('sawtooth', 120, 60, 0.9, 0.03); tone('sine', 300, 180, 0.9, 0.04); },
   bubble: () => { tone('sine', 300, 900, 0.18, 0.08); },
   pop: () => { tone('square', 900, 200, 0.08, 0.07); },
+  poof: () => { tone('sine', 520, 260, 0.25, 0.05); },
   heal: () => { tone('sine', 660, 880, 0.1, 0.1); setTimeout(() => tone('sine', 880, 1320, 0.16, 0.1), 90); },
 };
 function renderSoundBtn() {
@@ -174,7 +177,7 @@ function inputDir() {
 let mode = 'menu'; // menu | play | over
 let sheep, bars, foes, parts, camY, topY, maxY, hearts, inv, time, newRecordShown, nextHeartM;
 let skin = 'classic';
-let trapped = 0, wind = null, nextHoleM, nextWindM;
+let trapped = 0, wind = null, fog = null, nextHoleM, nextWindM, nextFogM;
 let shield, boost, nextShieldM, nextHatM, nextFlipM, nextJesusM, nextStarM, nextGlassesM, blurry;
 let best = Number(safeGet('best-m') || 0);
 
@@ -205,7 +208,8 @@ function reset() {
   nextGlassesM = GLASSES_FROM_M + Math.random() * 80;
   blurry = 0;
   skin = 'classic';
-  trapped = 0; wind = null;
+  trapped = 0; wind = null; fog = null;
+  nextFogM = HEAVEN_FROM_M + 140 + Math.random() * 100;
   nextHoleM = SPACE_FROM_M + 20 + Math.random() * 40;
   nextWindM = HEAVEN_FROM_M + 60 + Math.random() * 80;
   sheepSay = null;
@@ -228,9 +232,13 @@ function genBar() {
   const r = Math.random();
   let type = r < pMove ? 'moving' : r < pMove + pFrag ? 'fragile' : 'normal';
   // En el cielo (desde 2000 m) no hay tablones fijos: solo los que se mueven y los que se rompen
-  if (-y / PX_PER_M >= HEAVEN_FROM_M) type = Math.random() < 0.3 ? 'fragile' : 'moving';
+  if (-y / PX_PER_M >= HEAVEN_FROM_M) {
+    const q = Math.random();
+    type = q < 0.25 ? 'fragile' : q < 0.5 ? 'cloud' : 'moving';   // cristal · nube que se desvanece · oro que se mueve
+  }
   const bar = { x, y, w, type, vx: 0, broken: false, fallV: 0, seed: Math.random() };
   if (type === 'moving') bar.vx = (40 + 70 * d) * (Math.random() < 0.5 ? -1 : 1);
+  if (type === 'cloud') bar.vx = (12 + Math.random() * 14) * (Math.random() < 0.5 ? -1 : 1);   // las nubes van a la deriva
   bars.push(bar);
 
   // Obstáculos: van apareciendo poco a poco y cada uno se vuelve más frecuente con la altura
@@ -240,7 +248,7 @@ function genBar() {
 
   // Premios sobre el tablón (como mucho uno por tablón y nunca en uno frágil)
   let prize = null;
-  if (type !== 'fragile') {
+  if (type !== 'fragile' && type !== 'cloud') {
     if (m >= nextHeartM) {
       nextHeartM += HEART_EVERY_M;
       if (Math.random() < HEART_CHANCE) prize = 'heart';
@@ -284,7 +292,7 @@ function genBar() {
 
   // En el tablón: resortes desde el inicio, cardos desde 100 m y pinchos desde 300 m (uno por tablón)
   const off = Math.random() < 0.5 ? 16 : w - 16;
-  if (!occupied && type !== 'fragile' && m > 8 && Math.random() < SPRING_CHANCE) {
+  if (!occupied && type !== 'fragile' && type !== 'cloud' && m > 8 && Math.random() < SPRING_CHANCE) {
     bar.spring = { kind: 'spring', bar, off, x: 0, y: 0, r: 0, squish: 0 };
     foes.push(bar.spring);
     // A veces hay un escudo flotando justo encima del resorte (entre 6 y 14 m),
@@ -721,7 +729,7 @@ function lossPhrase(reason) {
 function gameOver(reason) {
   mode = 'over';
   blurry = 0;
-  trapped = 0; wind = null;
+  trapped = 0; wind = null; fog = null;
   const m = meters();
   const isRecord = m > best;
   if (isRecord) { best = m; safeSet('best-m', best); }
@@ -927,18 +935,19 @@ function update(dt) {
   if (blurry > 0) blurry = Math.max(0, blurry - dt);
 
   for (const b of bars) {
-    if (b.type === 'moving') {
+    if (b.type === 'moving' || b.type === 'cloud') {
       b.x += b.vx * dt;
       if (b.x < 0) { b.x = 0; b.vx *= -1; }
       if (b.x + b.w > GW) { b.x = GW - b.w; b.vx *= -1; }
     }
+    if (b.vanish > 0) { b.vanish -= dt; if (b.vanish <= 0) b.gone = true; }
     if (b.broken) { b.fallV += GRAVITY * dt; b.y += b.fallV * dt; }
   }
 
   // Aterrizaje sobre tablones
   if (sheep.vy > 0) {
     for (const b of bars) {
-      if (b.broken || (!playing && !b.ground)) continue;
+      if (b.broken || b.gone || (!playing && !b.ground)) continue;
       if (prevY <= b.y + 1 && sheep.y >= b.y && sheep.x + SHEEP_W * 0.36 > b.x && sheep.x - SHEEP_W * 0.36 < b.x + b.w) {
         sheep.y = b.y;
         sheep.vy = -JUMP;
@@ -946,6 +955,7 @@ function update(dt) {
         bumpLimbs(sheep);
         puff(sheep.x, b.y, '#ffffff', 5, 90);
         if (b.jesus && playing) cheer(b.jesus);
+        if (b.type === 'cloud' && !b.vanish) { b.vanish = CLOUD_VANISH; sfx.poof(); }
         const sp = b.spring;
         if (sp && Math.abs(sheep.x - (b.x + sp.off)) < 13 + SHEEP_W * 0.3) {
           // Resorte: salto gigante de 30 m
@@ -1089,8 +1099,15 @@ function update(dt) {
     nextStarM = meters() + 200 + Math.random() * 200;
     spawnCrosser('star');
   }
+  // Neblina en el cielo (desde 2000 m): tapa la parte de arriba de la pantalla unos segundos
+  if (fog) { fog.t += dt; if (fog.t > FOG_TIME) fog = null; }
+  if (mNow >= HEAVEN_FROM_M && mNow >= nextFogM && !fog && !wind) {
+    nextFogM = mNow + 140 + Math.random() * 120;
+    fog = { t: 0 };
+    showAnnounce('¡Uy, no veo nada!', '#6b7fa8');
+  }
   // Ráfagas de viento en el cielo (desde 2000 m)
-  if (mNow >= HEAVEN_FROM_M && mNow >= nextWindM && !wind) {
+  if (mNow >= HEAVEN_FROM_M && mNow >= nextWindM && !wind && !fog) {
     nextWindM = mNow + 110 + Math.random() * 110;
     wind = { dir: Math.random() < 0.5 ? -1 : 1, t: 0, warn: 0.9 };
     showAnnounce('¡Ráfaga de viento!', '#2f7fd0');
@@ -1100,7 +1117,7 @@ function update(dt) {
   // Generar y limpiar
   while (topY > camY - 200) genBar();
   const bottom = camY + GH + 250;
-  bars = bars.filter((b) => b.y < bottom);
+  bars = bars.filter((b) => b.y < bottom && !b.gone);
   foes = foes.filter((f) => !f.taken && !f.gone && (f.bar ? bars.includes(f.bar) : f.y < bottom));
 
   if (sheep.y > camY + GH + 60) { sfx.fall(); gameOver('fall'); }
@@ -1739,8 +1756,34 @@ function drawSpaceBar(b) {
   ctx.restore();
 }
 
+// Tablón de nube: esponjoso, va a la deriva y se desvanece tras pisarlo
+function drawCloudBar(b) {
+  const a = b.vanish > 0 ? Math.max(0, b.vanish / CLOUD_VANISH) : 1;
+  if (a <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = a;
+  const n = Math.max(3, Math.round(b.w / 22)), r = b.w / (n * 1.6);
+  const puffs = () => {
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const cx = b.x + r * 0.9 + (i * (b.w - r * 1.8)) / (n - 1), cy = b.y + 5 - (i % 2 ? r * 0.35 : 0);
+      ctx.moveTo(cx + r, cy); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    }
+    ctx.moveTo(b.x + 4, b.y + 6); ctx.roundRect(b.x + 2, b.y + 2, b.w - 4, 12, 6);
+  };
+  puffs(); ctx.strokeStyle = 'rgba(120,150,190,0.85)'; ctx.lineWidth = 5; ctx.stroke();
+  puffs(); ctx.fillStyle = '#ffffff'; ctx.fill();
+  ctx.save(); puffs(); ctx.clip();
+  ctx.fillStyle = 'rgba(200,225,250,0.9)'; ctx.fillRect(b.x, b.y + 8, b.w, 12);
+  ctx.restore();
+  // Al desvanecerse se deshace en motitas
+  if (b.vanish > 0 && Math.random() < 0.3) parts.push({ x: b.x + Math.random() * b.w, y: b.y + 4, vx: (Math.random() - 0.5) * 40, vy: 20, life: 0.5, max: 0.5, color: '#ffffff', r: 3 });
+  ctx.restore();
+}
+
 function drawBar(b) {
-  if (b.ground) return;
+  if (b.ground || b.gone) return;
+  if (b.type === 'cloud') { drawCloudBar(b); return; }
   const h = 13;
   const heaven = b.y < -HEAVEN_FROM_M * PX_PER_M;
   if (!heaven && b.y < -SPACE_FROM_M * PX_PER_M) { drawSpaceBar(b); return; }
@@ -2309,34 +2352,65 @@ function drawBoostBack(bst, h) {
       ctx.fillStyle = '#6f7682'; ctx.fillRect(dx - 5, -h * 0.33, 10, 4); ctx.strokeRect(dx - 5, -h * 0.33, 10, 4);
     }
   } else if (bst.style === 'wings') {
-    const flap = Math.sin(bst.t * 16) * 0.35;
+    const flap = Math.sin(bst.t * 14) * 0.4;
     for (const d of [-1, 1]) {
       ctx.save();
-      ctx.translate(d * 8, -h * 0.62);
+      ctx.translate(d * 10, -h * 0.6);
       ctx.scale(d, 1);
-      ctx.rotate(-0.25 + flap);
-      drawWing(1);
+      ctx.rotate(-0.2 + flap);
+      drawWing(0.85);
       ctx.restore();
     }
   }
   ctx.restore();
 }
+// Ala de ángel de caricatura: silueta redondeada con el borde de abajo en ondas (plumas),
+// blanca con sombra celeste, contorno oscuro y brillo dorado. Hombro en (0, 0); se abre hacia arriba a la derecha.
+function scallops(pts, bulge) {
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+    const mx = (x0 + x1) / 2, my = (y0 + y1) / 2, dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy);
+    // control hacia fuera del ala (a la derecha del recorrido de punta → hombro)
+    ctx.quadraticCurveTo(mx - (dy / L) * bulge, my + (dx / L) * bulge, x1, y1);
+  }
+}
 function drawWing(k) {
   ctx.save(); ctx.scale(k, k);
-  ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#c99a2e'; ctx.lineWidth = 2;
-  ctx.shadowColor = 'rgba(255,215,100,0.9)'; ctx.shadowBlur = 8;
-  ctx.beginPath();
-  ctx.moveTo(0, 0);
-  ctx.quadraticCurveTo(22, -26, 46, -20);
-  ctx.quadraticCurveTo(42, -12, 46, -8);
-  ctx.quadraticCurveTo(38, -2, 40, 4);
-  ctx.quadraticCurveTo(30, 6, 30, 12);
-  ctx.quadraticCurveTo(18, 12, 14, 16);
-  ctx.quadraticCurveTo(4, 10, 0, 0);
-  ctx.closePath(); ctx.fill();
-  ctx.shadowBlur = 0; ctx.stroke();
-  ctx.strokeStyle = 'rgba(201,154,46,0.6)'; ctx.lineWidth = 1.2;
-  ctx.beginPath(); ctx.moveTo(8, -2); ctx.quadraticCurveTo(24, -10, 40, -12); ctx.moveTo(8, 3); ctx.quadraticCurveTo(22, 0, 34, 2); ctx.stroke();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  // Resplandor dorado
+  const glow = ctx.createRadialGradient(24, -14, 4, 24, -14, 46);
+  glow.addColorStop(0, 'rgba(255,225,120,0.6)'); glow.addColorStop(1, 'rgba(255,225,120,0)');
+  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(24, -14, 46, 0, Math.PI * 2); ctx.fill();
+  // Silueta
+  const tip = [54, -30];
+  const outer = [tip, [50, -16], [42, -5], [31, 4], [18, 10], [5, 9]];
+  const shape = () => {
+    ctx.beginPath();
+    ctx.moveTo(-2, 2);
+    ctx.bezierCurveTo(0, -24, 22, -40, 44, -38);
+    ctx.quadraticCurveTo(56, -37, tip[0], tip[1]);
+    scallops(outer, -8);
+    ctx.quadraticCurveTo(0, 10, -2, 2);
+    ctx.closePath();
+  };
+  const g = ctx.createLinearGradient(0, -38, 30, 12);
+  g.addColorStop(0, '#ffffff'); g.addColorStop(0.6, '#f4f9ff'); g.addColorStop(1, '#cfe4fb');
+  shape(); ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2.4; ctx.stroke();
+  // Hileras de plumas por dentro (más cortas cada vez)
+  ctx.save(); shape(); ctx.clip();
+  ctx.strokeStyle = 'rgba(110,160,215,0.75)'; ctx.lineWidth = 1.6;
+  for (const [sc, off] of [[0.74, [4, -6]], [0.48, [6, -13]]]) {
+    ctx.beginPath();
+    const pts = outer.map(([x, y]) => [x * sc + off[0], y * sc + off[1]]);
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    scallops(pts, -(6 * sc + 1));
+    ctx.stroke();
+  }
+  ctx.restore();
+  // Brillo
+  ctx.fillStyle = 'rgba(255,255,255,0.95)';
+  ctx.beginPath(); ctx.ellipse(18, -24, 9, 3.5, -0.45, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 function drawRocketPrize(f) {
@@ -2353,7 +2427,7 @@ function drawWingsPrize(f) {
   ctx.translate(f.x, f.y + 4);
   prizeGlow(f, 26, 20);
   const flap = Math.sin(f.t * 5) * 0.2;
-  for (const d of [-1, 1]) { ctx.save(); ctx.scale(d, 1); ctx.translate(2, 0); ctx.rotate(-0.3 + flap); drawWing(0.55); ctx.restore(); }
+  for (const d of [-1, 1]) { ctx.save(); ctx.scale(d, 1); ctx.translate(2, 2); ctx.rotate(-0.15 + flap); drawWing(0.42); ctx.restore(); }
   ctx.fillStyle = '#ffd23f'; ctx.strokeStyle = '#b8860b'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.ellipse(0, -16, 9, 3, 0, 0, Math.PI * 2); ctx.stroke();
   ctx.restore();
@@ -2439,6 +2513,26 @@ function drawTrapBubble(s) {
   const wob = 1 + Math.sin(time * 9) * 0.03;
   bubbleShape(s.x, s.y - SHEEP_H * 0.5, SHEEP_H * 0.66 * wob, time);
 }
+// Neblina: bancos de niebla que cubren la parte de arriba (hacia donde vas) y se mueven despacio
+const FOG_PUFFS = Array.from({ length: 14 }, (_, i) => ({ x: (i * 0.37) % 1, y: ((i * 0.53) % 1) * 0.32, r: 0.22 + ((i * 7) % 5) * 0.05, v: 0.02 + (i % 4) * 0.01 }));
+function drawFog() {
+  if (!fog) return;
+  const a = Math.min(1, fog.t / 0.8, (FOG_TIME - fog.t) / 0.9);
+  if (a <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = a;
+  const base = ctx.createLinearGradient(0, 0, 0, H * 0.5);
+  base.addColorStop(0, 'rgba(248,246,240,0.94)'); base.addColorStop(0.65, 'rgba(248,246,240,0.82)'); base.addColorStop(1, 'rgba(248,246,240,0)');
+  ctx.fillStyle = base; ctx.fillRect(0, 0, W, H * 0.5);
+  for (const p of FOG_PUFFS) {
+    const x = ((p.x + fog.t * p.v) % 1.4 - 0.2) * W, y = p.y * H, r = p.r * Math.min(W, H * 0.5);
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(255,255,255,0.85)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
 // Líneas de viento que cruzan la pantalla
 function drawWind() {
   if (!wind) return;
@@ -2540,6 +2634,7 @@ function draw() {
   drawSheepSay();
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawFog();
   drawWind();
   if (offX > 4) {
     ctx.fillStyle = 'rgba(15,20,40,0.25)';

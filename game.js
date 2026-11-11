@@ -878,6 +878,8 @@ function cheer(f) {
   f.sayT = 3.5;
 }
 
+const TRICKS = new Set(['glasses', 'coffee', 'mirror', 'flashlight']);
+function trickActive() { return blurry > 0 || coffee > 0 || mirror > 0 || !!dark; }
 const PRIZES = new Set(['heart', 'shield', 'hat', 'rocket', 'wings', 'glasses', 'coffee', 'mirror', 'flashlight']);
 function collectPrize(f) {
   f.taken = true;
@@ -1125,7 +1127,9 @@ function update(dt) {
       else { f.x = f.fx; f.y = f.fy + Math.sin(f.t * 3) * 4; }   // flotando sobre un resorte
       if (playing && !f.taken) {
         const dx = f.x - sheep.x, dy = f.y - (sheep.y - SHEEP_H * 0.5);
-        if (dx * dx + dy * dy < (f.r + SHEEP_W * 0.45) ** 2) collectPrize(f);
+        // Mientras dura un objeto travieso (anteojos, café, espejo, linterna) no se puede tomar otro
+        const locked = TRICKS.has(f.kind) && trickActive();
+        if (!locked && dx * dx + dy * dy < (f.r + SHEEP_W * 0.45) ** 2) collectPrize(f);
       }
       continue;
     } else {
@@ -3177,7 +3181,12 @@ function draw() {
     ctx.translate(-cx, -cy);
   }
   for (const b of bars) drawBar(b);
-  for (const f of foes) FOE_DRAW[f.kind](f);
+  const locked = trickActive();
+  for (const f of foes) {
+    // Los objetos traviesos se ven apagados mientras otro está activo (no se pueden tomar)
+    if (locked && TRICKS.has(f.kind)) { ctx.save(); ctx.globalAlpha = 0.35; FOE_DRAW[f.kind](f); ctx.restore(); }
+    else FOE_DRAW[f.kind](f);
+  }
   for (const p of parts) {
     ctx.globalAlpha = Math.max(p.life / p.max, 0);
     ctx.fillStyle = p.color;

@@ -1163,6 +1163,10 @@ const SPRITES = {
   bill: 'sprites/billete.webp',
   jesus: 'sprites/jesus.webp',
   party: 'sprites/oveja-fiesta.webp',
+  astroBody: 'sprites/astro-cuerpo.webp',
+  astroBack: 'sprites/astro-fondo.webp',
+  astroArmL: 'sprites/astro-brazo-izq.webp',
+  astroArmR: 'sprites/astro-brazo-der.webp',
 };
 // Piezas móviles: esquina superior izquierda (x, y) y punto de giro (px, py), en píxeles del sprite
 const PARTS = {
@@ -1908,115 +1912,45 @@ function drawPart(name, lx, top, angle) {
   ctx.restore();
 }
 
-// ---------- Traje espacial (1000–2000 m) sobre la Sheepy original ----------
-// Se dibuja en coordenadas del sprite (213 × 363 px) para que encaje con cuerpo, brazos y cabeza.
-const SUIT = { white: '#f7f8fb', shade: '#d6dce8', orange: '#ff7751', grey: '#9aa3b5', line: OUTLINE };
-// Manga del traje sobre cada brazo, en el mismo giro del brazo (se mueve con él)
-function drawSleeve(name, lx, top, angle) {
-  const P = PARTS[name], im = img[name];
-  if (!im.complete || !im.naturalWidth) return;
-  const flip = name === 'armR';
+// ---------- Sheepy astronauta (1000–2000 m): imagen por capas con brazos animados ----------
+// Las 4 capas miden 200 × 355 px; los brazos giran en el hombro (ASTRO_PIVOT, en px de la imagen)
+const ASTRO_PIVOT = { L: [36.6, 177], R: [163.8, 177] };
+function drawAstroArm(name, piv, k, angle) {
+  const im = img[name];
   ctx.save();
-  ctx.translate(lx + P.px * SPR_K, top + P.py * SPR_K);
+  ctx.translate((piv[0] - 100) * k, (piv[1] - 355) * k);
   ctx.rotate(angle);
-  ctx.translate((P.x - P.px) * SPR_K, (P.y - P.py) * SPR_K);
-  ctx.scale(SPR_K, SPR_K);
-  if (flip) { ctx.translate(42, 0); ctx.scale(-1, 1); }
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-  ctx.moveTo(14, -6); ctx.lineTo(41, -6);
-  ctx.quadraticCurveTo(38, 30, 31, 70);
-  ctx.lineTo(1, 70);
-  ctx.quadraticCurveTo(2, 30, 14, -6);
-  ctx.closePath();
-  const g = ctx.createLinearGradient(0, 0, 42, 0);
-  g.addColorStop(0, SUIT.shade); g.addColorStop(0.45, SUIT.white); g.addColorStop(1, SUIT.shade);
-  ctx.fillStyle = g; ctx.fill();
-  ctx.strokeStyle = SUIT.line; ctx.lineWidth = 5; ctx.stroke();
-  // Puño naranja
-  ctx.fillStyle = SUIT.orange;
-  ctx.beginPath(); ctx.roundRect(-1, 60, 34, 12, 5); ctx.fill(); ctx.stroke();
-  // Arrugas
-  ctx.strokeStyle = 'rgba(29,26,26,0.35)'; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.moveTo(10, 28); ctx.quadraticCurveTo(20, 32, 32, 26); ctx.moveTo(6, 46); ctx.quadraticCurveTo(16, 50, 30, 44); ctx.stroke();
+  ctx.drawImage(im, -piv[0] * k, -piv[1] * k, 200 * k, 355 * k);
   ctx.restore();
 }
-function drawSpaceSuit(lx, top) {
+function drawAstroSheep(s) {
+  const h = SHEEP_H * 1.12, k = h / 355, w = 200 * k;
   ctx.save();
-  ctx.translate(lx, top);
-  ctx.scale(SPR_K, SPR_K);
-  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  // Cuerpo del traje (cubre la lana del cuerpo; asoma un poco de lana en los hombros)
-  const torso = () => {
-    ctx.beginPath();
-    ctx.moveTo(62, 166);
-    ctx.quadraticCurveTo(34, 172, 33, 200);
-    ctx.lineTo(34, 258);
-    ctx.quadraticCurveTo(38, 298, 80, 300);
-    ctx.lineTo(134, 300);
-    ctx.quadraticCurveTo(178, 298, 181, 258);
-    ctx.lineTo(182, 200);
-    ctx.quadraticCurveTo(180, 172, 152, 166);
-    ctx.closePath();
-  };
-  const g = ctx.createLinearGradient(30, 0, 185, 0);
-  g.addColorStop(0, SUIT.shade); g.addColorStop(0.35, SUIT.white); g.addColorStop(0.7, SUIT.white); g.addColorStop(1, SUIT.shade);
-  torso(); ctx.fillStyle = g; ctx.fill();
-  ctx.strokeStyle = SUIT.line; ctx.lineWidth = 6; ctx.stroke();
-  ctx.save(); torso(); ctx.clip();
-  // Franjas naranjas en los hombros y cinturón
-  ctx.fillStyle = SUIT.orange;
-  ctx.fillRect(30, 178, 30, 12); ctx.fillRect(155, 178, 30, 12);
-  ctx.fillStyle = SUIT.grey; ctx.fillRect(30, 262, 160, 14);
-  ctx.strokeStyle = SUIT.line; ctx.lineWidth = 4;
-  ctx.strokeRect(30, 262, 160, 14);
-  ctx.fillStyle = '#ffd23f'; ctx.beginPath(); ctx.roundRect(98, 260, 20, 18, 4); ctx.fill(); ctx.stroke();
-  ctx.restore();
-  // Panel del pecho con botones
-  ctx.strokeStyle = SUIT.line; ctx.lineWidth = 4;
-  ctx.fillStyle = '#c9d3ea'; ctx.beginPath(); ctx.roundRect(82, 196, 50, 38, 8); ctx.fill(); ctx.stroke();
-  const blinkOn = Math.sin(time * 5) > 0;
-  for (const [bx, col] of [[94, '#ff4d4d'], [107, '#3fc4ff'], [120, '#ffd23f']]) {
-    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(bx, 208, 5, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 2.5; ctx.stroke();
+  ctx.translate(s.x, s.y);
+  ctx.rotate((s.vx / MOVE) * 0.12);
+  const rising = Math.min(Math.max(-s.vy / JUMP, 0), 1);
+  const sq = s.squash;
+  ctx.scale(1 + 0.2 * sq - 0.05 * rising, 1 - 0.2 * sq + 0.07 * rising);
+  if (sq > 0.2) {
+    ctx.fillStyle = 'rgba(20,20,30,0.22)';
+    ctx.beginPath(); ctx.ellipse(0, 0, SHEEP_W * 0.42, 3.5, 0, 0, Math.PI * 2); ctx.fill();
   }
-  ctx.fillStyle = blinkOn ? '#5cff8a' : '#1f6b3a';
-  ctx.beginPath(); ctx.roundRect(90, 220, 34, 7, 3); ctx.fill(); ctx.stroke();
-  // Insignia con estrella
-  ctx.fillStyle = '#3f6fd0'; ctx.lineWidth = 3;
-  ctx.beginPath(); ctx.arc(160, 222, 11, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath();
-  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5, r = i % 2 ? 3 : 7; ctx.lineTo(160 + Math.cos(a) * r, 222 + Math.sin(a) * r); }
-  ctx.closePath(); ctx.fill();
-  // Casco de cristal alrededor de la cabeza (orejas incluidas)
-  const cx = 106, cy = 98, R = 102;
-  ctx.save();
-  ctx.beginPath(); ctx.rect(-20, -40, 260, 214); ctx.clip();     // la parte de abajo queda dentro del cuello
-  const glass = ctx.createRadialGradient(cx - 30, cy - 40, 10, cx, cy, R);
-  glass.addColorStop(0, 'rgba(255,255,255,0.28)'); glass.addColorStop(0.75, 'rgba(190,230,255,0.14)'); glass.addColorStop(1, 'rgba(120,190,240,0.35)');
-  ctx.fillStyle = glass; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = SUIT.line; ctx.lineWidth = 7; ctx.stroke();
-  ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, R - 6, 0, Math.PI * 2); ctx.stroke();
-  // Reflejos
-  ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 9;
-  ctx.beginPath(); ctx.arc(cx, cy, R - 18, Math.PI * 1.08, Math.PI * 1.38); ctx.stroke();
-  ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(cx, cy, R - 18, Math.PI * 1.45, Math.PI * 1.52); ctx.stroke();
-  ctx.restore();
-  // Cuello del traje (aro)
-  ctx.fillStyle = SUIT.grey; ctx.strokeStyle = SUIT.line; ctx.lineWidth = 6;
-  ctx.beginPath(); ctx.ellipse(107, 172, 60, 11, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.beginPath(); ctx.ellipse(96, 168, 30, 3, 0, 0, Math.PI * 2); ctx.fill();
-  // Antena con luz
-  ctx.strokeStyle = SUIT.line; ctx.lineWidth = 5;
-  ctx.beginPath(); ctx.moveTo(150, 14); ctx.lineTo(166, -14); ctx.stroke();
-  ctx.fillStyle = blinkOn ? '#ff4d4d' : '#ffb3b3';
-  ctx.beginPath(); ctx.arc(167, -16, 8, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 4; ctx.stroke();
+  if (s.face < 0) ctx.scale(-1, 1);
+  if (boost && (boost.style === 'rocket' || boost.style === 'wings')) drawBoostBack(boost, SHEEP_H);
+  // Brazos detrás del cuerpo (como la Sheepy normal), con menos recorrido por el traje
+  const arm = Math.min(Math.max(s.arm * 0.65, -0.35), 1.35);
+  ctx.drawImage(img.astroBack, -w / 2, -h, w, h);
+  drawAstroArm('astroArmL', ASTRO_PIVOT.L, k, arm);
+  drawAstroArm('astroArmR', ASTRO_PIVOT.R, k, -arm);
+  ctx.drawImage(img.astroBody, -w / 2, -h, w, h);
+  if (boost && boost.style === 'hat') { ctx.translate(0, -h + 6); drawPropHat(boost.t, 1); }
   ctx.restore();
 }
 
 function drawSheep(s) {
   if (inv > 0 && Math.floor(inv * 12) % 2 === 0) return;
   if (skin === 'party' && img.party.complete && img.party.naturalWidth) { drawPartySheep(s); return; }
+  if (skin === 'astro' && img.astroBody.complete && img.astroBody.naturalWidth) { drawAstroSheep(s); return; }
   if (!img.body.complete || !img.body.naturalWidth) return;
   ctx.save();
   ctx.translate(s.x, s.y);
@@ -2039,7 +1973,6 @@ function drawSheep(s) {
   // Brazos y orejas van detrás del cuerpo: su base queda tapada por la lana
   drawPart('armL', lx, top, s.arm);
   drawPart('armR', lx, top, -s.arm);
-  if (skin === 'astro') { drawSleeve('armL', lx, top, s.arm); drawSleeve('armR', lx, top, -s.arm); }
   const ear = Math.min(Math.max(s.ear, -0.7), 1.2); // hacia abajo se esconderían tras la cabeza
   drawPart('earL', lx, top, ear);
   drawPart('earR', lx, top, -ear);
@@ -2065,7 +1998,6 @@ function drawSheep(s) {
       ctx.beginPath(); ctx.arc(x, y - 3 * SPR_K, 7 * SPR_K, 0.25 * Math.PI, 0.75 * Math.PI); ctx.stroke();
     }
   }
-  if (skin === 'astro') drawSpaceSuit(lx, top);
   if (boost && boost.style !== 'rocket' && boost.style !== 'wings') { ctx.translate(0, top + 4); drawPropHat(boost.t, 1); }
   ctx.restore();
 }

@@ -1,6 +1,6 @@
 // Service worker: guarda los archivos en caché para que el juego funcione sin conexión.
 // Usa primero la red, así que los cambios publicados llegan sin esperar. Sube la versión si cambias la lista de archivos.
-const CACHE = 'sheepy-v55';
+const CACHE = 'sheepy-v56';
 const ASSETS = [
   './',
   'index.html',
@@ -22,6 +22,12 @@ const ASSETS = [
   'sprites/gafas-cuerpo.webp',
   'sprites/gafas-fondo.webp',
   'sprites/gafas-brazo.webp',
+  'sprites/espejo-cuerpo.webp',
+  'sprites/espejo-fondo.webp',
+  'sprites/espejo-brazo-izq.webp',
+  'sprites/espejo-brazo-der.webp',
+  'sprites/espejo-oreja-izq.webp',
+  'sprites/espejo-oreja-der.webp',
   'sprites/inicio-cuerpo.webp',
   'sprites/inicio-chispas.webp',
   'sprites/oveja-cuerpo.png',

@@ -71,11 +71,11 @@ const FLIP_FROM_M = 300;   // chancleta voladora: cruza la pantalla de lado a la
 const FLIP_WARN = 1.1;     // segundos de aviso antes de que entre
 const STAR_FROM_M = 1000;  // estrella fugaz: solo en el espacio (1000–2000 m), como la chancleta
 const GLASSES_FROM_M = 150; // anteojos: distorsionan la vista un rato (poco frecuentes)
-const GLASSES_TIME = 6;
+const GLASSES_TIME = 8;
 // Más objetos "traviesos" (no quitan vida, complican un rato)
-const COFFEE_FROM_M = 250, COFFEE_TIME = 7, COFFEE_SPEED = 1.8;  // café: Sheepy va acelerada
-const MIRROR_FROM_M = 350, MIRROR_TIME = 5;                      // espejo: controles invertidos
-const DARK_FROM_M = 450, DARK_TIME = 5, DARK_LIGHT_AT = 4;       // linterna apagada: oscuridad; al seg. 4 vuelve la luz
+const COFFEE_FROM_M = 250, COFFEE_TIME = 8, COFFEE_SPEED = 1.8;  // café: Sheepy va acelerada
+const MIRROR_FROM_M = 350, MIRROR_TIME = 8;                      // espejo: controles invertidos
+const DARK_FROM_M = 450, DARK_TIME = 8, DARK_LIGHT_AT = 7;       // linterna apagada: oscuridad; al seg. 7 vuelve la luz
 const SPRING_M = 30;       // resorte en los tablones: impulsa 30 m (desde el inicio, frecuente)
 const SPRING_CHANCE = 0.08;
 const SPRING_SHIELD_CHANCE = 0.4; // 40 % de los resortes llevan un escudo flotando en su trayectoria
@@ -188,7 +188,12 @@ let skin = 'classic';
 // Cambio de skin con luz (estilo "evolución"): la silueta se ilumina, parpadea entre la skin vieja y la nueva y estalla en luz
 let morph = null, lastLook = 'classic';
 const MORPH_TIME = 1.25, MORPH_SWAP = 0.85;
-function currentLook() { return blurry > 0 ? 'glasses' : skin; }
+function currentLook() {
+  // Anteojos y espejo cambian la skin mientras duran (si hay dos, gana el más reciente)
+  if (blurry > 0 && (mirror <= 0 || blurry >= mirror)) return 'glasses';
+  if (mirror > 0) return 'mirror';
+  return skin;
+}
 let trapped = 0, wind = null, fog = null, nextHoleM, nextWindM, nextFogM;
 let shield, boost, nextShieldM, nextHatM, nextFlipM, nextJesusM, nextStarM, nextGlassesM, blurry;
 let coffee = 0, mirror = 0, dark = null, nextCoffeeM, nextMirrorM, nextDarkM;
@@ -989,7 +994,7 @@ function update(dt) {
   if (mirror > 0) mirror = Math.max(0, mirror - dt);
   if (dark) {
     dark.t += dt;
-    if (!dark.lit && dark.t >= DARK_LIGHT_AT) {   // al segundo 4: "Yo soy la luz" y todo se aclara
+    if (!dark.lit && dark.t >= DARK_LIGHT_AT) {   // al segundo 7: "Yo soy la luz" y todo se aclara
       dark.lit = true;
       showAnnounce('¡Yo soy la luz!', '#e0a800');
       sfx.cheer();
@@ -1221,6 +1226,12 @@ const SPRITES = {
   glassesBody: 'sprites/gafas-cuerpo.webp',
   glassesBack: 'sprites/gafas-fondo.webp',
   glassesArm: 'sprites/gafas-brazo.webp',
+  mirrorBody: 'sprites/espejo-cuerpo.webp',
+  mirrorBack: 'sprites/espejo-fondo.webp',
+  mirrorArmL: 'sprites/espejo-brazo-izq.webp',
+  mirrorArmR: 'sprites/espejo-brazo-der.webp',
+  mirrorEarL: 'sprites/espejo-oreja-izq.webp',
+  mirrorEarR: 'sprites/espejo-oreja-der.webp',
 };
 // Piezas móviles: esquina superior izquierda (x, y) y punto de giro (px, py), en píxeles del sprite
 const PARTS = {
@@ -2126,12 +2137,50 @@ function drawMorphFlash() {
   ctx.restore();
 }
 
+// ---------- Sheepy del espejo: capas de 199 × 355 px con orejas y brazos completos animados ----------
+const MIRROR_PARTS = { earL: [48.4, 85.3], earR: [157.0, 103.7], armL: [43.6, 190.9], armR: [138.6, 190.9] };
+function drawMirrorPart(name, k, w, h, angle) {
+  const piv = MIRROR_PARTS[name];
+  ctx.save();
+  ctx.translate(-w / 2 + piv[0] * k, -h + piv[1] * k);
+  ctx.rotate(angle);
+  ctx.drawImage(img['mirror' + name[0].toUpperCase() + name.slice(1)], -piv[0] * k, -piv[1] * k, w, h);
+  ctx.restore();
+}
+function drawMirrorSheep(s) {
+  const h = SHEEP_H * 1.08, k = h / 355, w = 199 * k;
+  ctx.save();
+  ctx.translate(s.x, s.y);
+  ctx.rotate((s.vx / MOVE) * 0.12);
+  const rising = Math.min(Math.max(-s.vy / JUMP, 0), 1);
+  const sq = s.squash;
+  ctx.scale(1 + 0.2 * sq - 0.05 * rising, 1 - 0.2 * sq + 0.07 * rising);
+  if (sq > 0.2) {
+    ctx.fillStyle = 'rgba(20,20,30,0.22)';
+    ctx.beginPath(); ctx.ellipse(0, 0, SHEEP_W * 0.42, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  if (s.face < 0) ctx.scale(-1, 1);
+  if (boost && (boost.style === 'rocket' || boost.style === 'wings')) drawBoostBack(boost, SHEEP_H);
+  ctx.drawImage(img.mirrorBack, -w / 2, -h, w, h);
+  ctx.drawImage(img.mirrorBody, -w / 2, -h, w, h);
+  // Orejas: caen al subir y se levantan al caer · Brazos: se abren y aletean
+  const ear = Math.min(Math.max(s.ear, -0.7), 1.2) * 0.55;
+  const arm = Math.min(Math.max(s.arm * 0.4, -0.2), 0.65);
+  drawMirrorPart('earL', k, w, h, ear);
+  drawMirrorPart('earR', k, w, h, -ear);
+  drawMirrorPart('armL', k, w, h, arm);
+  drawMirrorPart('armR', k, w, h, -arm);
+  if (boost && boost.style === 'hat') { ctx.translate(0, -h + 6); drawPropHat(boost.t, 1); }
+  ctx.restore();
+}
+
 function drawSheep(s) {
   if (inv > 0 && Math.floor(inv * 12) % 2 === 0 && !morph) return;
   if (morph) { drawSheepMorph(s); return; }
   drawSheepLook(s, currentLook());
 }
 function drawSheepLook(s, look) {
+  if (look === 'mirror' && img.mirrorBody.complete && img.mirrorBody.naturalWidth) { drawMirrorSheep(s); return; }
   if (look === 'glasses' && img.glassesBody.complete && img.glassesBody.naturalWidth) { drawGlassesSheep(s); return; }
   if (look === 'party' && img.party.complete && img.party.naturalWidth) { drawPartySheep(s); return; }
   if (look === 'astro' && img.astroBody.complete && img.astroBody.naturalWidth) { drawAstroSheep(s); return; }

@@ -189,13 +189,14 @@ let skin = 'classic';
 let morph = null, lastLook = 'classic';
 const MORPH_TIME = 1.25, MORPH_SWAP = 0.85;
 function currentLook() {
-  // Anteojos y espejo cambian la skin mientras duran (si hay dos, gana el más reciente)
-  if (blurry > 0 && (mirror <= 0 || blurry >= mirror)) return 'glasses';
-  if (mirror > 0) return 'mirror';
-  return skin;
+  // Anteojos, espejo y café cambian la skin mientras duran (si hay varios, gana el más reciente)
+  let look = skin, best = 0;
+  for (const [k, v] of [['glasses', blurry], ['mirror', mirror], ['coffee', coffee]]) if (v > best) { best = v; look = k; }
+  return look;
 }
 let trapped = 0, wind = null, fog = null, nextHoleM, nextWindM, nextFogM;
 let shield, boost, nextShieldM, nextHatM, nextFlipM, nextJesusM, nextStarM, nextGlassesM, blurry;
+let sheepTrail = [];
 let coffee = 0, mirror = 0, dark = null, nextCoffeeM, nextMirrorM, nextDarkM;
 let best = Number(safeGet('best-m') || 0);
 
@@ -225,7 +226,7 @@ function reset() {
   nextStarM = STAR_FROM_M + Math.random() * 80;
   nextGlassesM = GLASSES_FROM_M + Math.random() * 80;
   blurry = 0;
-  coffee = 0; mirror = 0; dark = null;
+  coffee = 0; mirror = 0; dark = null; sheepTrail = [];
   nextCoffeeM = COFFEE_FROM_M + Math.random() * 80;
   nextMirrorM = MIRROR_FROM_M + Math.random() * 80;
   nextDarkM = DARK_FROM_M + Math.random() * 80;
@@ -991,6 +992,9 @@ function update(dt) {
   if (blurry > 0) blurry = Math.max(0, blurry - dt);
   updateMorph(dt, playing);
   if (coffee > 0) coffee = Math.max(0, coffee - dt);
+  // Rastro de posiciones para las imágenes fantasma de la Sheepy veloz
+  sheepTrail.unshift({ x: sheep.x, y: sheep.y, vx: sheep.vx, vy: sheep.vy, sq: sheep.squash });
+  if (sheepTrail.length > 14) sheepTrail.length = 14;
   if (mirror > 0) mirror = Math.max(0, mirror - dt);
   if (dark) {
     dark.t += dt;
@@ -2185,10 +2189,23 @@ function drawSheepLook(s, look) {
   if (look === 'party' && img.party.complete && img.party.naturalWidth) { drawPartySheep(s); return; }
   if (look === 'astro' && img.astroBody.complete && img.astroBody.naturalWidth) { drawAstroSheep(s); return; }
   if (!img.body.complete || !img.body.naturalWidth) return;
+  const speedy = look === 'coffee';
+  // Sheepy veloz: deja imágenes fantasma detrás (solo si de verdad se está moviendo)
+  if (speedy && !s.ghost) {
+    for (const [i, a] of [[12, 0.12], [8, 0.2], [4, 0.32]]) {
+      const p = sheepTrail[i];
+      if (!p || Math.hypot(p.x - s.x, p.y - s.y) < 6 || Math.abs(p.x - s.x) > GW / 2) continue;
+      ctx.save();
+      ctx.globalAlpha *= a;
+      drawSheepLook({ ...s, x: p.x, y: p.y, vx: p.vx, vy: p.vy, squash: p.sq, ghost: true }, 'coffee');
+      ctx.restore();
+    }
+  }
   ctx.save();
   ctx.translate(s.x, s.y);
+  if (speedy && !s.ghost) ctx.translate(Math.sin(time * 61) * 0.6, Math.cos(time * 53) * 0.4); // tiembla por el café
   // Inclinación al moverse, aplastar al caer y estirar al subir
-  ctx.rotate((s.vx / MOVE) * 0.12);
+  ctx.rotate((s.vx / MOVE) * (speedy ? 0.08 : 0.12));
   const rising = Math.min(Math.max(-s.vy / JUMP, 0), 1);
   const sq = s.squash;
   ctx.scale(1 + 0.2 * sq - 0.05 * rising, 1 - 0.2 * sq + 0.07 * rising);
@@ -2202,7 +2219,8 @@ function drawSheepLook(s, look) {
   const lx = -SHEEP_W / 2;
   const top = -SHEEP_H;
 
-  if (boost && (boost.style === 'rocket' || boost.style === 'wings')) drawBoostBack(boost, SHEEP_H);
+  if (boost && (boost.style === 'rocket' || boost.style === 'wings') && !s.ghost) drawBoostBack(boost, SHEEP_H);
+  if (speedy && !s.ghost) { drawShoeFlames(lx, top, s); drawScarfTails(lx, top, s); }
   // Brazos y orejas van detrás del cuerpo: su base queda tapada por la lana
   drawPart('armL', lx, top, s.arm);
   drawPart('armR', lx, top, -s.arm);
@@ -2231,7 +2249,93 @@ function drawSheepLook(s, look) {
       ctx.beginPath(); ctx.arc(x, y - 3 * SPR_K, 7 * SPR_K, 0.25 * Math.PI, 0.75 * Math.PI); ctx.stroke();
     }
   }
+  if (speedy) drawSpeedGear(lx, top, s);
   if (boost && boost.style !== 'rocket' && boost.style !== 'wings') { ctx.translate(0, top + 4); drawPropHat(boost.t, 1); }
+  ctx.restore();
+}
+
+// ---------- Sheepy veloz (café): gafas de carreras, rayo en la gorra y la panza, bufanda al viento y tenis en llamas ----------
+// Todo se dibuja en coordenadas del sprite clásico (213 × 363 px)
+function boltPath(x, y, k) {
+  ctx.beginPath();
+  ctx.moveTo(x + 4 * k, y - 14 * k); ctx.lineTo(x - 6 * k, y + 2 * k); ctx.lineTo(x + 1 * k, y + 2 * k);
+  ctx.lineTo(x - 4 * k, y + 15 * k); ctx.lineTo(x + 7 * k, y - 3 * k); ctx.lineTo(x, y - 3 * k);
+  ctx.lineTo(x + 5 * k, y - 14 * k); ctx.closePath();
+}
+function drawSpeedGear(lx, top, s) {
+  ctx.save();
+  ctx.translate(lx, top); ctx.scale(SPR_K, SPR_K);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.strokeStyle = OUTLINE;
+  // Rayo en la gorra
+  ctx.fillStyle = '#ffd23f'; ctx.lineWidth = 3.5;
+  boltPath(106, 22, 1.25); ctx.fill(); ctx.stroke();
+  // Gafas de carreras sobre la visera (correa negra y lentes naranjas)
+  ctx.fillStyle = '#2b2b33';
+  ctx.beginPath(); ctx.roundRect(46, 44, 122, 9, 4); ctx.fill();
+  for (const gx of [84, 128]) {
+    ctx.fillStyle = '#c9ced8'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.ellipse(gx, 48, 19, 13, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    const g = ctx.createLinearGradient(gx - 12, 38, gx + 12, 58);
+    g.addColorStop(0, '#ffd66b'); g.addColorStop(1, '#ff6a2b');
+    ctx.fillStyle = g; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.ellipse(gx, 48, 13, 8.5, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath(); ctx.ellipse(gx - 5, 45, 4, 2.2, -0.4, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(103, 47); ctx.lineTo(109, 47); ctx.stroke();
+  // Bufanda roja al cuello
+  ctx.fillStyle = '#e8322b'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(56, 160); ctx.quadraticCurveTo(106, 186, 158, 160);
+  ctx.lineTo(160, 176); ctx.quadraticCurveTo(106, 202, 54, 176); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(66, 170); ctx.quadraticCurveTo(106, 190, 148, 170); ctx.stroke();
+  // Rayo en la panza
+  ctx.strokeStyle = OUTLINE; ctx.fillStyle = '#ffd23f'; ctx.lineWidth = 4.5;
+  boltPath(106, 236, 2.4); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.beginPath(); ctx.moveTo(111, 205); ctx.lineTo(98, 232); ctx.lineTo(103, 232); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+// Puntas de la bufanda ondeando hacia atrás (detrás del cuerpo)
+function drawScarfTails(lx, top, s) {
+  const dir = Math.abs(s.vx) > 30 ? -Math.sign(s.vx) : -s.face;
+  ctx.save();
+  ctx.translate(lx, top); ctx.scale(SPR_K, SPR_K);
+  ctx.translate(dir > 0 ? 150 : 63, 172);
+  ctx.scale(dir, 1);
+  ctx.fillStyle = '#e8322b'; ctx.strokeStyle = OUTLINE; ctx.lineWidth = 4; ctx.lineJoin = 'round';
+  for (const [len, off, ph] of [[92, -6, 0], [74, 10, 1.7]]) {
+    ctx.beginPath();
+    ctx.moveTo(0, off - 7);
+    for (let i = 1; i <= 6; i++) { const x = (len * i) / 6; ctx.lineTo(x, off - 7 + Math.sin(time * 22 + ph - i * 0.9) * (2 + i * 1.6) - i * 2); }
+    for (let i = 6; i >= 0; i--) { const x = (len * i) / 6; ctx.lineTo(x, off + 7 + Math.sin(time * 22 + ph - i * 0.9) * (2 + i * 1.6) - i * 2); }
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  ctx.restore();
+}
+// Llamas que salen de los tenis (más largas cuanto más rápido va)
+function drawShoeFlames(lx, top, s) {
+  const sp = Math.min(1, Math.hypot(s.vx, s.vy) / (MOVE * COFFEE_SPEED));
+  ctx.save();
+  ctx.translate(lx, top); ctx.scale(SPR_K, SPR_K);
+  const lean = Math.max(-1, Math.min(1, -s.vx / (MOVE * COFFEE_SPEED))) * 0.9;
+  for (const fx of [70, 142]) {
+    ctx.save();
+    ctx.translate(fx, 352);
+    ctx.rotate(lean);
+    const L = 40 + 45 * sp + Math.sin(time * 40 + fx) * 8;
+    for (const [w, l, c] of [[26, 1, '#ff5a1f'], [17, 0.75, '#ffb02e'], [9, 0.5, '#fff3a8']]) {
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.moveTo(-w, 0);
+      ctx.quadraticCurveTo(-w * 0.8, L * l * 0.6, Math.sin(time * 30 + fx) * 4, L * l);
+      ctx.quadraticCurveTo(w * 0.8, L * l * 0.6, w, 0);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
   ctx.restore();
 }
 

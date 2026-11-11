@@ -1,6 +1,7 @@
 // Sheepy Jumps — la oveja rebota sola sobre los tablones; tú la mueves a izquierda y derecha.
 const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
+const mainCtx = canvas.getContext('2d');
+let ctx = mainCtx; // se cambia por un lienzo aparte mientras los anteojos distorsionan el mundo
 const $ = (id) => document.getElementById(id);
 
 // ---------- Pantalla de inicio ----------
@@ -1209,6 +1210,9 @@ const SPRITES = {
   astroBack: 'sprites/astro-fondo.webp',
   astroArmL: 'sprites/astro-brazo-izq.webp',
   astroArmR: 'sprites/astro-brazo-der.webp',
+  glassesBody: 'sprites/gafas-cuerpo.webp',
+  glassesBack: 'sprites/gafas-fondo.webp',
+  glassesArm: 'sprites/gafas-brazo.webp',
 };
 // Piezas móviles: esquina superior izquierda (x, y) y punto de giro (px, py), en píxeles del sprite
 const PARTS = {
@@ -1989,8 +1993,39 @@ function drawAstroSheep(s) {
   ctx.restore();
 }
 
+// ---------- Sheepy con anteojos (mientras dura el efecto de los anteojos) ----------
+// 3 capas de 220 × 355 px: el brazo libre (izquierdo) gira entero desde el hombro
+const GLASSES_PIVOT = [30.2, 168.9];
+function drawGlassesSheep(s) {
+  const h = SHEEP_H * 1.06, k = h / 355, w = 220 * k;
+  ctx.save();
+  ctx.translate(s.x, s.y);
+  ctx.rotate((s.vx / MOVE) * 0.12);
+  const rising = Math.min(Math.max(-s.vy / JUMP, 0), 1);
+  const sq = s.squash;
+  ctx.scale(1 + 0.2 * sq - 0.05 * rising, 1 - 0.2 * sq + 0.07 * rising);
+  if (sq > 0.2) {
+    ctx.fillStyle = 'rgba(20,20,30,0.22)';
+    ctx.beginPath(); ctx.ellipse(0, 0, SHEEP_W * 0.42, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  if (s.face < 0) ctx.scale(-1, 1);
+  if (boost && (boost.style === 'rocket' || boost.style === 'wings')) drawBoostBack(boost, SHEEP_H);
+  ctx.drawImage(img.glassesBack, -w / 2, -h, w, h);
+  ctx.drawImage(img.glassesBody, -w / 2, -h, w, h);
+  // Brazo libre: se levanta al subir y aletea al caer (el otro sostiene los anteojos)
+  const arm = Math.min(Math.max(s.arm * 0.6, -0.25), 1.1);
+  ctx.save();
+  ctx.translate(-w / 2 + GLASSES_PIVOT[0] * k, -h + GLASSES_PIVOT[1] * k);
+  ctx.rotate(arm);
+  ctx.drawImage(img.glassesArm, -GLASSES_PIVOT[0] * k, -GLASSES_PIVOT[1] * k, w, h);
+  ctx.restore();
+  if (boost && boost.style === 'hat') { ctx.translate(0, -h + 6); drawPropHat(boost.t, 1); }
+  ctx.restore();
+}
+
 function drawSheep(s) {
   if (inv > 0 && Math.floor(inv * 12) % 2 === 0) return;
+  if (blurry > 0 && img.glassesBody.complete && img.glassesBody.naturalWidth) { drawGlassesSheep(s); return; }
   if (skin === 'party' && img.party.complete && img.party.naturalWidth) { drawPartySheep(s); return; }
   if (skin === 'astro' && img.astroBody.complete && img.astroBody.naturalWidth) { drawAstroSheep(s); return; }
   if (!img.body.complete || !img.body.naturalWidth) return;
@@ -2460,12 +2495,6 @@ function blurAmount() {
   if (blurry <= 0) return 0;
   return Math.min(1, blurry / 0.8, (GLASSES_TIME - blurry) / 0.5);
 }
-function applyBlurFilter() {
-  const k = blurAmount();
-  const f = k > 0.01 ? `blur(${(1.6 * k).toFixed(2)}px) saturate(${(1 + 0.7 * k).toFixed(2)}) hue-rotate(${Math.round(Math.sin(time * 1.6) * 35 * k)}deg)` : '';
-  if (f !== lastFilter) { canvas.style.filter = f; lastFilter = f; }
-  return k;
-}
 
 function drawFlip(f) {
   if (f.warn > 0) {
@@ -2859,19 +2888,32 @@ function drawThorn(f) {
   ctx.restore();
 }
 
+// Lienzo aparte para el mundo (cielo, tablones, enemigos) cuando hay que distorsionarlo
+let worldCv = null;
+const CAN_FILTER = 'filter' in mainCtx;
+function worldCtx() {
+  if (!worldCv) worldCv = document.createElement('canvas');
+  if (worldCv.width !== canvas.width || worldCv.height !== canvas.height) { worldCv.width = canvas.width; worldCv.height = canvas.height; }
+  return worldCv.getContext('2d');
+}
 function draw() {
+  // Anteojos: todo el mundo se ve borroso, doble y se tambalea… menos Sheepy
+  const wob = blurAmount();
+  const distort = wob > 0.01;
+  ctx = mainCtx;
+  if (lastFilter) { canvas.style.filter = ''; lastFilter = ''; }
+  if (distort) ctx = worldCtx();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   drawSky();
   drawGround();
 
   ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * offX, -dpr * camY * scale);
-  const wob = applyBlurFilter();
-  if (wob > 0) {
+  if (distort) {
     const cx = GW / 2, cy = camY + GH / 2;
     ctx.translate(cx, cy);
-    ctx.rotate(Math.sin(time * 1.7) * 0.05 * wob);
-    ctx.scale(1 + Math.sin(time * 2.3) * 0.06 * wob, 1 + Math.cos(time * 1.9) * 0.06 * wob);
-    ctx.transform(1, 0, Math.sin(time * 1.3) * 0.08 * wob, 1, 0, 0);
+    ctx.rotate(Math.sin(time * 1.7) * 0.08 * wob);
+    ctx.scale(1 + Math.sin(time * 2.3) * 0.09 * wob, 1 + Math.cos(time * 1.9) * 0.09 * wob);
+    ctx.transform(1, 0, Math.sin(time * 1.3) * 0.14 * wob, 1, 0, 0);
     ctx.translate(-cx, -cy);
   }
   for (const b of bars) drawBar(b);
@@ -2884,6 +2926,18 @@ function draw() {
     ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   }
   ctx.globalAlpha = 1;
+  if (distort) {
+    // Se pega el mundo en la pantalla con borrosidad, colores raros y visión doble
+    ctx = mainCtx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (CAN_FILTER) ctx.filter = `blur(${(2.4 * dpr * wob).toFixed(2)}px) saturate(${(1 + 0.9 * wob).toFixed(2)}) hue-rotate(${Math.round(Math.sin(time * 1.6) * 50 * wob)}deg)`;
+    ctx.drawImage(worldCv, 0, 0);
+    ctx.globalAlpha = 0.42 * wob;
+    ctx.drawImage(worldCv, Math.sin(time * 2.1) * 8 * dpr * wob, Math.cos(time * 1.7) * 5 * dpr * wob);
+    ctx.globalAlpha = 1;
+    if (CAN_FILTER) ctx.filter = 'none';
+    ctx.setTransform(dpr * scale, 0, 0, dpr * scale, dpr * offX, -dpr * camY * scale);
+  }
   drawSheep(sheep);
   drawTrapBubble(sheep);
   if (shield > 0) drawShieldBubble(sheep);

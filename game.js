@@ -132,6 +132,8 @@ const sfx = {
   spring: () => { tone('square', 160, 720, 0.28, 0.06); tone('sine', 220, 990, 0.32, 0.1); },
   alert: () => { tone('square', 880, 660, 0.12, 0.06); setTimeout(() => tone('square', 880, 660, 0.12, 0.06), 160); },
   cheer: () => { tone('sine', 523, 523, 0.12, 0.07); setTimeout(() => tone('sine', 659, 659, 0.12, 0.07), 110); setTimeout(() => tone('sine', 784, 784, 0.2, 0.07), 220); },
+  evolve: () => { tone('triangle', 260, 1100, 0.8, 0.07); tone('sine', 390, 1650, 0.8, 0.05); },
+  burst: () => { tone('sine', 1046, 1568, 0.35, 0.09); setTimeout(() => tone('sine', 1318, 2093, 0.4, 0.07), 90); },
   wobble: () => { tone('sine', 500, 260, 0.35, 0.08); setTimeout(() => tone('sine', 420, 640, 0.35, 0.06), 180); },
   wind: () => { tone('sawtooth', 120, 60, 0.9, 0.03); tone('sine', 300, 180, 0.9, 0.04); },
   bubble: () => { tone('sine', 300, 900, 0.18, 0.08); },
@@ -183,6 +185,10 @@ function inputDir() {
 let mode = 'menu'; // menu | play | over
 let sheep, bars, foes, parts, camY, topY, maxY, hearts, inv, time, newRecordShown, nextHeartM;
 let skin = 'classic';
+// Cambio de skin con luz (estilo "evolución"): la silueta se ilumina, parpadea entre la skin vieja y la nueva y estalla en luz
+let morph = null, lastLook = 'classic';
+const MORPH_TIME = 1.25, MORPH_SWAP = 0.85;
+function currentLook() { return blurry > 0 ? 'glasses' : skin; }
 let trapped = 0, wind = null, fog = null, nextHoleM, nextWindM, nextFogM;
 let shield, boost, nextShieldM, nextHatM, nextFlipM, nextJesusM, nextStarM, nextGlassesM, blurry;
 let coffee = 0, mirror = 0, dark = null, nextCoffeeM, nextMirrorM, nextDarkM;
@@ -219,6 +225,7 @@ function reset() {
   nextMirrorM = MIRROR_FROM_M + Math.random() * 80;
   nextDarkM = DARK_FROM_M + Math.random() * 80;
   skin = 'classic';
+  morph = null; lastLook = 'classic';
   trapped = 0; wind = null; fog = null;
   nextFogM = HEAVEN_FROM_M + 140 + Math.random() * 100;
   nextHoleM = SPACE_FROM_M + 20 + Math.random() * 40;
@@ -977,6 +984,7 @@ function update(dt) {
   if (shield > 0) shield = Math.max(0, shield - dt);
   if (sheepSay && (sheepSay.t -= dt) <= 0) sheepSay = null;
   if (blurry > 0) blurry = Math.max(0, blurry - dt);
+  updateMorph(dt, playing);
   if (coffee > 0) coffee = Math.max(0, coffee - dt);
   if (mirror > 0) mirror = Math.max(0, mirror - dt);
   if (dark) {
@@ -2023,11 +2031,110 @@ function drawGlassesSheep(s) {
   ctx.restore();
 }
 
+function updateMorph(dt, playing) {
+  const look = currentLook();
+  if (look !== lastLook) {
+    if (playing) {
+      // Si ya estaba cambiando, parte desde lo que se veía en ese momento
+      const from = morph ? (morph.t < MORPH_SWAP ? morph.from : morph.to) : lastLook;
+      morph = { t: 0, from, to: look, burst: false };
+      sfx.evolve();
+    }
+    lastLook = look;
+  }
+  if (morph) {
+    morph.to = look;
+    morph.t += dt;
+    if (!morph.burst && morph.t >= MORPH_SWAP) {
+      morph.burst = true;
+      sfx.burst();
+      const cy = sheep.y - SHEEP_H * 0.5;
+      puff(sheep.x, cy, '#ffffff', 16, 240);
+      puff(sheep.x, cy, '#fff3a8', 12, 190);
+    }
+    if (morph.t >= MORPH_TIME) morph = null;
+  }
+}
+// Skin que se ve ahora (durante el cambio, alterna entre la vieja y la nueva cada vez más rápido)
+function shownLook() {
+  if (!morph) return currentLook();
+  const t = morph.t;
+  if (t >= MORPH_SWAP) return morph.to;
+  if (t < 0.25) return morph.from;
+  const p = (t - 0.25) / (MORPH_SWAP - 0.25);         // 0 → 1
+  const phase = 2 * p + 7 * p * p;                    // parpadeo que acelera
+  return Math.floor(phase * 2) % 2 ? morph.to : morph.from;
+}
+// Lienzo aparte para pintar la silueta blanca de Sheepy
+let fxCv = null;
+function drawSheepMorph(s) {
+  const t = morph.t;
+  // Brillo de la silueta: sube, se mantiene blanco y se apaga tras el estallido
+  const white = t < 0.25 ? t / 0.25 : t < MORPH_SWAP ? 1 : Math.max(0, 1 - (t - MORPH_SWAP) / (MORPH_TIME - MORPH_SWAP));
+  const cx = s.x, cy = s.y - SHEEP_H * 0.5;
+  // Halo de luz detrás y rayos girando
+  const glow = t < MORPH_SWAP ? 0.35 + 0.65 * (t / MORPH_SWAP) : white;
+  ctx.save();
+  const R = 60 + 40 * glow;
+  const g = ctx.createRadialGradient(cx, cy, 4, cx, cy, R);
+  g.addColorStop(0, `rgba(255,255,255,${0.9 * glow})`);
+  g.addColorStop(0.45, `rgba(255,244,170,${0.55 * glow})`);
+  g.addColorStop(1, 'rgba(255,244,170,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
+  ctx.translate(cx, cy); ctx.rotate(time * 1.6);
+  ctx.fillStyle = `rgba(255,250,215,${0.45 * glow})`;
+  for (let i = 0; i < 12; i++) {
+    ctx.rotate(Math.PI / 6);
+    const L = R * (1.1 + 0.25 * Math.sin(time * 9 + i));
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-5, -L); ctx.lineTo(5, -L); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+  // Sheepy normal y encima su silueta blanca
+  drawSheepLook(s, shownLook());
+  if (white > 0.01) {
+    if (!fxCv) fxCv = document.createElement('canvas');
+    if (fxCv.width !== canvas.width || fxCv.height !== canvas.height) { fxCv.width = canvas.width; fxCv.height = canvas.height; }
+    const fx = fxCv.getContext('2d');
+    const prev = ctx, m = ctx.getTransform();
+    fx.setTransform(1, 0, 0, 1, 0, 0);
+    fx.clearRect(0, 0, fxCv.width, fxCv.height);
+    fx.setTransform(m);
+    ctx = fx;
+    try { drawSheepLook(s, shownLook()); } finally { ctx = prev; }
+    fx.setTransform(1, 0, 0, 1, 0, 0);
+    fx.globalCompositeOperation = 'source-atop';
+    fx.fillStyle = '#ffffff';
+    fx.fillRect(0, 0, fxCv.width, fxCv.height);
+    fx.globalCompositeOperation = 'source-over';
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = white;
+    ctx.drawImage(fxCv, 0, 0);
+    ctx.restore();
+  }
+}
+// Destello que ilumina toda la pantalla en el momento del cambio
+function drawMorphFlash() {
+  if (!morph || morph.t < MORPH_SWAP) return;
+  const a = Math.max(0, 1 - (morph.t - MORPH_SWAP) / 0.35);
+  if (a <= 0) return;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = `rgba(255,255,240,${0.75 * a})`;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+}
+
 function drawSheep(s) {
-  if (inv > 0 && Math.floor(inv * 12) % 2 === 0) return;
-  if (blurry > 0 && img.glassesBody.complete && img.glassesBody.naturalWidth) { drawGlassesSheep(s); return; }
-  if (skin === 'party' && img.party.complete && img.party.naturalWidth) { drawPartySheep(s); return; }
-  if (skin === 'astro' && img.astroBody.complete && img.astroBody.naturalWidth) { drawAstroSheep(s); return; }
+  if (inv > 0 && Math.floor(inv * 12) % 2 === 0 && !morph) return;
+  if (morph) { drawSheepMorph(s); return; }
+  drawSheepLook(s, currentLook());
+}
+function drawSheepLook(s, look) {
+  if (look === 'glasses' && img.glassesBody.complete && img.glassesBody.naturalWidth) { drawGlassesSheep(s); return; }
+  if (look === 'party' && img.party.complete && img.party.naturalWidth) { drawPartySheep(s); return; }
+  if (look === 'astro' && img.astroBody.complete && img.astroBody.naturalWidth) { drawAstroSheep(s); return; }
   if (!img.body.complete || !img.body.naturalWidth) return;
   ctx.save();
   ctx.translate(s.x, s.y);
@@ -2945,6 +3052,7 @@ function draw() {
   drawDarkness(sheep);
   for (const f of foes) if (f.kind === 'jesus') drawSpeech(f);
   drawSheepSay();
+  drawMorphFlash();
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   drawFog();

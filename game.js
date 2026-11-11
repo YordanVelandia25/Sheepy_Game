@@ -71,6 +71,10 @@ const FLIP_WARN = 1.1;     // segundos de aviso antes de que entre
 const STAR_FROM_M = 1000;  // estrella fugaz: solo en el espacio (1000–2000 m), como la chancleta
 const GLASSES_FROM_M = 150; // anteojos: distorsionan la vista un rato (poco frecuentes)
 const GLASSES_TIME = 6;
+// Más objetos "traviesos" (no quitan vida, complican un rato)
+const COFFEE_FROM_M = 250, COFFEE_TIME = 7, COFFEE_SPEED = 1.8;  // café: Sheepy va acelerada
+const MIRROR_FROM_M = 350, MIRROR_TIME = 5;                      // espejo: controles invertidos
+const DARK_FROM_M = 450, DARK_TIME = 5, DARK_LIGHT_AT = 4;       // linterna apagada: oscuridad; al seg. 4 vuelve la luz
 const SPRING_M = 30;       // resorte en los tablones: impulsa 30 m (desde el inicio, frecuente)
 const SPRING_CHANCE = 0.08;
 const SPRING_SHIELD_CHANCE = 0.4; // 40 % de los resortes llevan un escudo flotando en su trayectoria
@@ -180,6 +184,7 @@ let sheep, bars, foes, parts, camY, topY, maxY, hearts, inv, time, newRecordShow
 let skin = 'classic';
 let trapped = 0, wind = null, fog = null, nextHoleM, nextWindM, nextFogM;
 let shield, boost, nextShieldM, nextHatM, nextFlipM, nextJesusM, nextStarM, nextGlassesM, blurry;
+let coffee = 0, mirror = 0, dark = null, nextCoffeeM, nextMirrorM, nextDarkM;
 let best = Number(safeGet('best-m') || 0);
 
 const clouds = Array.from({ length: 5 }, () => ({
@@ -208,6 +213,10 @@ function reset() {
   nextStarM = STAR_FROM_M + Math.random() * 80;
   nextGlassesM = GLASSES_FROM_M + Math.random() * 80;
   blurry = 0;
+  coffee = 0; mirror = 0; dark = null;
+  nextCoffeeM = COFFEE_FROM_M + Math.random() * 80;
+  nextMirrorM = MIRROR_FROM_M + Math.random() * 80;
+  nextDarkM = DARK_FROM_M + Math.random() * 80;
   skin = 'classic';
   trapped = 0; wind = null; fog = null;
   nextFogM = HEAVEN_FROM_M + 140 + Math.random() * 100;
@@ -273,6 +282,9 @@ function genBar() {
     }
     else if (!prize && m >= SHIELD_FROM_M && m >= nextShieldM && Math.random() < 0.08) { prize = 'shield'; nextShieldM = m + (m >= HEAVEN_FROM_M ? 150 : 55) + Math.random() * 55; }
     else if (!prize && m >= GLASSES_FROM_M && m >= nextGlassesM && Math.random() < 0.07) { prize = 'glasses'; nextGlassesM = m + 90 + Math.random() * 90; }
+    else if (!prize && m >= COFFEE_FROM_M && m >= nextCoffeeM && Math.random() < 0.04) { prize = 'coffee'; nextCoffeeM = m + 130 + Math.random() * 120; }
+    else if (!prize && m >= MIRROR_FROM_M && m >= nextMirrorM && Math.random() < 0.04) { prize = 'mirror'; nextMirrorM = m + 140 + Math.random() * 130; }
+    else if (!prize && m >= DARK_FROM_M && m >= nextDarkM && Math.random() < 0.035) { prize = 'flashlight'; nextDarkM = m + 180 + Math.random() * 150; }
   }
   if (prize) foes.push({ kind: prize, bar, off: w / 2, x: 0, y: 0, r: 16, t: Math.random() * 6 });
   // Jesús: de pie en un tablón normal y ancho, en un extremo para que Sheepy pueda caer a su lado
@@ -742,7 +754,7 @@ function lossPhrase(reason) {
 function gameOver(reason) {
   mode = 'over';
   speak('Ay, ay, la murición');
-  blurry = 0;
+  blurry = 0; coffee = 0; mirror = 0; dark = null;
   trapped = 0; wind = null; fog = null;
   const m = meters();
   const isRecord = m > best;
@@ -852,7 +864,7 @@ function cheer(f) {
   f.sayT = 3.5;
 }
 
-const PRIZES = new Set(['heart', 'shield', 'hat', 'rocket', 'wings', 'glasses']);
+const PRIZES = new Set(['heart', 'shield', 'hat', 'rocket', 'wings', 'glasses', 'coffee', 'mirror', 'flashlight']);
 function collectPrize(f) {
   f.taken = true;
   puff(f.x, f.y, '#ffffff', 6, 110);
@@ -871,6 +883,21 @@ function collectPrize(f) {
     puff(f.x, f.y, '#c9b8ff', 12, 150);
     sfx.wobble();
     showAnnounce('¡Ay, necesito un ojólogo!', '#6b4fd8');
+  } else if (f.kind === 'coffee') {
+    coffee = COFFEE_TIME;
+    puff(f.x, f.y, '#a0673a', 12, 160);
+    sfx.whoosh();
+    showAnnounce('¡Uy, mucho café!', '#8a4b1f');
+  } else if (f.kind === 'mirror') {
+    mirror = MIRROR_TIME;
+    puff(f.x, f.y, '#bfe9ff', 12, 160);
+    sfx.wobble();
+    showAnnounce('¡Todo está al revés!', '#2f7fb8');
+  } else if (f.kind === 'flashlight') {
+    dark = { t: 0, lit: false };
+    puff(f.x, f.y, '#555b66', 10, 120);
+    sfx.wobble();
+    showAnnounce('¿A dónde se fue la luz?', '#3a3f55');
   } else if (f.kind === 'hat' || f.kind === 'rocket' || f.kind === 'wings') {
     boost = { toY: Math.min(sheep.y, f.y) - HAT_BOOST_M * PX_PER_M, t: 0, style: f.kind };
     trapped = 0;
@@ -904,9 +931,11 @@ function bumpLimbs(s) { // golpe al aterrizar: orejas y brazos rebotan
 function update(dt) {
   time += dt;
   const playing = mode === 'play';
-  const dir = playing ? inputDir() : 0;
+  // Espejo: los controles se invierten · Café: Sheepy se mueve mucho más rápido
+  const dir = playing ? inputDir() * (mirror > 0 ? -1 : 1) : 0;
+  const speed = MOVE * (coffee > 0 ? COFFEE_SPEED : 1);
 
-  sheep.vx += (dir * MOVE - sheep.vx) * Math.min(1, dt * 10);
+  sheep.vx += (dir * speed - sheep.vx) * Math.min(1, dt * (coffee > 0 ? 14 : 10));
   if (dir) sheep.face = dir;
   sheep.x += sheep.vx * dt;
   if (sheep.x < -16) sheep.x = GW + 16;
@@ -947,6 +976,19 @@ function update(dt) {
   if (shield > 0) shield = Math.max(0, shield - dt);
   if (sheepSay && (sheepSay.t -= dt) <= 0) sheepSay = null;
   if (blurry > 0) blurry = Math.max(0, blurry - dt);
+  if (coffee > 0) coffee = Math.max(0, coffee - dt);
+  if (mirror > 0) mirror = Math.max(0, mirror - dt);
+  if (dark) {
+    dark.t += dt;
+    if (!dark.lit && dark.t >= DARK_LIGHT_AT) {   // al segundo 4: "Yo soy la luz" y todo se aclara
+      dark.lit = true;
+      showAnnounce('¡Yo soy la luz!', '#e0a800');
+      sfx.cheer();
+      puff(sheep.x, sheep.y - SHEEP_H * 0.5, '#ffd23f', 18, 220);
+      puff(sheep.x, sheep.y - SHEEP_H * 0.5, '#ffffff', 10, 160);
+    }
+    if (dark.t >= DARK_TIME) dark = null;
+  }
 
   for (const b of bars) {
     if (b.type === 'moving' || b.type === 'cloud') {
@@ -2255,6 +2297,163 @@ function drawGlassesPrize(f) {
   ctx.beginPath(); ctx.ellipse(-14, -3, 2, 1.2, -0.6, 0, Math.PI * 2); ctx.ellipse(8, -3, 2, 1.2, -0.6, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
+// Café: taza humeante
+function drawCoffeePrize(f) {
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  prizeGlow(f, 21, 21);
+  ctx.rotate(Math.sin(f.t * 2.4) * 0.12);
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  // Vapor
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 2;
+  for (const dx of [-4, 3]) {
+    ctx.beginPath();
+    for (let i = 0; i <= 8; i++) { const yy = -9 - i * 1.4; ctx.lineTo(dx + Math.sin(f.t * 5 + i * 0.8 + dx) * 2, yy); }
+    ctx.stroke();
+  }
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2.2;
+  // Asa
+  ctx.beginPath(); ctx.arc(10, 0, 5, -Math.PI / 2, Math.PI / 2); ctx.stroke();
+  // Taza
+  ctx.fillStyle = '#ff7751';
+  ctx.beginPath(); ctx.moveTo(-11, -8); ctx.lineTo(11, -8); ctx.lineTo(9, 9); ctx.quadraticCurveTo(0, 12, -9, 9); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#6b3a1e';
+  ctx.beginPath(); ctx.ellipse(0, -8, 11, 3, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.ellipse(-1, 1, 3.4, 3, 0, 0, Math.PI * 2); ctx.fill();   // corazón/grano en la taza
+  ctx.fillStyle = 'rgba(255,255,255,0.55)';
+  ctx.beginPath(); ctx.ellipse(-7, 0, 1.5, 4, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+// Espejo de mano
+function drawMirrorPrize(f) {
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  prizeGlow(f, 21, 21);
+  ctx.rotate(Math.sin(f.t * 2.4) * 0.18 - 0.3);
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2.2; ctx.lineJoin = 'round';
+  ctx.fillStyle = '#b14fd0';
+  ctx.beginPath(); ctx.roundRect(-3, 6, 6, 13, 3); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(0, -3, 11, 12, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  const g = ctx.createLinearGradient(-8, -12, 8, 6);
+  g.addColorStop(0, '#e9f8ff'); g.addColorStop(0.5, '#9fd8f5'); g.addColorStop(1, '#d7f1ff');
+  ctx.fillStyle = g; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.ellipse(0, -3, 7.5, 8.5, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  // Destello que cruza el cristal
+  ctx.save(); ctx.beginPath(); ctx.ellipse(0, -3, 7.5, 8.5, 0, 0, Math.PI * 2); ctx.clip();
+  const sx = ((f.t * 14) % 30) - 15;
+  ctx.strokeStyle = 'rgba(255,255,255,0.95)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(sx - 6, 6); ctx.lineTo(sx + 6, -12); ctx.stroke();
+  ctx.restore();
+  ctx.restore();
+}
+// Linterna apagada
+function drawFlashlightPrize(f) {
+  ctx.save();
+  ctx.translate(f.x, f.y);
+  prizeGlow(f, 22, 18);
+  ctx.rotate(Math.sin(f.t * 2.4) * 0.12 - 0.35);
+  ctx.strokeStyle = OUTLINE; ctx.lineWidth = 2.2; ctx.lineJoin = 'round';
+  // Mango
+  ctx.fillStyle = '#4a5068';
+  ctx.beginPath(); ctx.roundRect(-16, -5, 20, 10, 3); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#ff4d4d';
+  ctx.beginPath(); ctx.roundRect(-8, -7, 5, 3, 1); ctx.fill(); ctx.stroke();       // botón
+  // Cabeza
+  ctx.fillStyle = '#7a8199';
+  ctx.beginPath(); ctx.moveTo(4, -5); ctx.lineTo(13, -9); ctx.lineTo(13, 9); ctx.lineTo(4, 5); ctx.closePath(); ctx.fill(); ctx.stroke();
+  // Cristal apagado
+  ctx.fillStyle = '#2b2f3d';
+  ctx.beginPath(); ctx.ellipse(13, 0, 3, 9, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  // "Zzz" de apagada
+  ctx.fillStyle = '#3a3f55'; ctx.font = 'bold 8px sans-serif'; ctx.textAlign = 'center';
+  ctx.globalAlpha = 0.5 + 0.5 * Math.sin(f.t * 3);
+  ctx.fillText('off', 0, -11);
+  ctx.restore();
+}
+// Indicadores sobre Sheepy mientras dura el café o el espejo (con anillo de tiempo)
+function drawStatusBadges(s) {
+  const list = [];
+  if (coffee > 0) list.push(['coffee', coffee / COFFEE_TIME]);
+  if (mirror > 0) list.push(['mirror', mirror / MIRROR_TIME]);
+  if (!list.length) return;
+  const y = s.y - SHEEP_H * 1.12 - 14;
+  list.forEach(([kind, k], i) => {
+    const x = s.x + (i - (list.length - 1) / 2) * 26;
+    ctx.save();
+    ctx.translate(x, y);
+    if (k < 0.2 && Math.floor(time * 8) % 2 === 0) ctx.globalAlpha = 0.45;
+    ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.strokeStyle = OUTLINE; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = kind === 'coffee' ? '#ff7751' : '#2f7fb8'; ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.arc(0, 0, 10, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * k); ctx.stroke();
+    ctx.strokeStyle = OUTLINE; ctx.lineWidth = 1.4; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    if (kind === 'coffee') {
+      ctx.fillStyle = '#ff7751';
+      ctx.beginPath(); ctx.moveTo(-5, -3); ctx.lineTo(4, -3); ctx.lineTo(3, 5); ctx.lineTo(-4, 5); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(5, 1, 2.2, -Math.PI / 2, Math.PI / 2); ctx.stroke();
+      ctx.strokeStyle = '#a0673a';
+      ctx.beginPath(); ctx.moveTo(-1, -5); ctx.quadraticCurveTo(1, -7, -1, -9); ctx.stroke();
+    } else {
+      // Flechas ⇄
+      ctx.strokeStyle = '#2f7fb8'; ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.moveTo(-5, -2.5); ctx.lineTo(5, -2.5); ctx.moveTo(2.5, -5); ctx.lineTo(5, -2.5); ctx.lineTo(2.5, 0);
+      ctx.moveTo(5, 2.5); ctx.lineTo(-5, 2.5); ctx.moveTo(-2.5, 0); ctx.lineTo(-5, 2.5); ctx.lineTo(-2.5, 5);
+      ctx.stroke();
+    }
+    ctx.restore();
+  });
+  // Café: rayitas de velocidad detrás de Sheepy
+  if (coffee > 0 && Math.abs(s.vx) > MOVE * 0.6) {
+    const back = -Math.sign(s.vx);
+    ctx.save(); ctx.strokeStyle = 'rgba(160,103,58,0.7)'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+    for (let i = 0; i < 3; i++) {
+      const yy = s.y - SHEEP_H * (0.25 + i * 0.22), len = 10 + 6 * Math.sin(time * 30 + i * 2);
+      ctx.beginPath(); ctx.moveTo(s.x + back * 24, yy); ctx.lineTo(s.x + back * (24 + len), yy); ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+// Linterna: todo se pone oscuro (solo se ve un poquito alrededor de Sheepy);
+// al segundo 4 Sheepy dice "Yo soy la luz" y todo se aclara con un resplandor dorado
+function drawDarkness(s) {
+  if (!dark) return;
+  const t = dark.t;
+  let k;
+  if (!dark.lit) k = Math.min(1, t / 0.35);
+  else k = Math.max(0, 1 - (t - DARK_LIGHT_AT) / 0.45);
+  const cx = s.x, cy = s.y - SHEEP_H * 0.5;
+  const x0 = -GW, y0 = camY - GH, ww = GW * 3, hh = GH * 3;
+  if (k > 0) {
+    const r = 46 + Math.sin(time * 3) * 3;
+    const g = ctx.createRadialGradient(cx, cy, r * 0.5, cx, cy, r * 2.2);
+    g.addColorStop(0, `rgba(5,6,16,${0.25 * k})`);
+    g.addColorStop(1, `rgba(5,6,16,${0.95 * k})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(x0, y0, ww, hh);
+  }
+  if (dark.lit) {
+    // Resplandor de luz que sale de Sheepy y se expande
+    const lt = t - DARK_LIGHT_AT, a = Math.max(0, 1 - lt / (DARK_TIME - DARK_LIGHT_AT));
+    const R = 40 + lt * 520;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+    g.addColorStop(0, `rgba(255,236,150,${0.75 * a})`);
+    g.addColorStop(0.5, `rgba(255,210,63,${0.35 * a})`);
+    g.addColorStop(1, 'rgba(255,210,63,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x0, y0, ww, hh);
+    // Rayos girando
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(time * 0.8);
+    ctx.fillStyle = `rgba(255,240,170,${0.35 * a})`;
+    for (let i = 0; i < 10; i++) {
+      ctx.rotate(Math.PI / 5);
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-10, -R * 0.9); ctx.lineTo(10, -R * 0.9); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
 // Distorsión de la vista (anteojos): borroso, colores raros y el mundo se tambalea
 let lastFilter = '';
 function blurAmount() {
@@ -2688,6 +2887,8 @@ function draw() {
   drawSheep(sheep);
   drawTrapBubble(sheep);
   if (shield > 0) drawShieldBubble(sheep);
+  drawStatusBadges(sheep);
+  drawDarkness(sheep);
   for (const f of foes) if (f.kind === 'jesus') drawSpeech(f);
   drawSheepSay();
 
@@ -2703,7 +2904,7 @@ function draw() {
   }
 }
 
-const FOE_DRAW = { bee: drawBee, bat: drawBat, thorn: drawThorn, spike: drawSpike, spring: drawSpring, flip: drawFlip, jesus: drawJesus, star: drawShootingStar, glasses: drawGlassesPrize,
+const FOE_DRAW = { bee: drawBee, bat: drawBat, thorn: drawThorn, spike: drawSpike, spring: drawSpring, flip: drawFlip, jesus: drawJesus, star: drawShootingStar, glasses: drawGlassesPrize, coffee: drawCoffeePrize, mirror: drawMirrorPrize, flashlight: drawFlashlightPrize,
   drone: drawDrone, mine: drawMine, hole: drawHole, bubble: drawFloatBubble, rocket: drawRocketPrize, wings: drawWingsPrize, heart: drawHeart, shield: drawShieldPrize, hat: drawHatPrize };
 
 // ---------- Bucle ----------

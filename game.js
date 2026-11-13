@@ -79,7 +79,7 @@ const SPRING_V = Math.sqrt(2 * GRAVITY * SPRING_M * PX_PER_M);
 // ---------- Pantalla ----------
 let W, H, dpr, scale, GH, offX;
 function resize() {
-  dpr = window.devicePixelRatio || 1;
+  dpr = Math.min(window.devicePixelRatio || 1, 2);   // más de 2× no se nota y cuesta mucho dibujar
   W = canvas.clientWidth || window.innerWidth;
   H = canvas.clientHeight || window.innerHeight;
   canvas.width = Math.round(W * dpr);
@@ -625,7 +625,6 @@ async function loadWorld(l = view.menu) {
   }
   renderRanking();
 }
-function loadAllWorlds() { for (const l of new Set([view.menu, view.over, level])) loadWorld(l); }
 
 // Cola de puntuaciones por enviar (sobrevive a cortes de conexión y recargas)
 let pending = loadJSON(PENDING_KEY, []);
@@ -970,7 +969,6 @@ function spawnCrosser(kind) {
   showAnnounce(kind === 'star' ? '¡Una Estrella Fugaz!' : '¡Una Chancleta Voladora!');
   sfx.alert();
 }
-function spawnFlip() { spawnCrosser('flip'); }
 function showAnnounce(text, color) {
   sheepSay = { text, t: SAY_TIME, dur: SAY_TIME, color };
   speak(text.replace(/[¡!]/g, ''));
@@ -1348,7 +1346,8 @@ function update(dt) {
   while (topY > camY - 200) genBar();
   const bottom = camY + GH + 250;
   bars = bars.filter((b) => b.y < bottom && !b.gone);
-  foes = foes.filter((f) => !f.taken && !f.gone && (f.bar ? bars.includes(f.bar) : f.y < bottom));
+  const alive = new Set(bars);
+  foes = foes.filter((f) => !f.taken && !f.gone && (f.bar ? alive.has(f.bar) : f.y < bottom));
 
   if (sheep.y > camY + GH + 60) { sfx.fall(); gameOver('fall'); }
 }
@@ -1365,13 +1364,13 @@ const PAL = {
 
 // Sprites del personaje (cuerpo y tenis por separado para animarlos)
 const SPRITES = {
-  body: 'sprites/oveja-cuerpo.png',
-  footL: 'sprites/oveja-pie-izq.png',
-  footR: 'sprites/oveja-pie-der.png',
-  earL: 'sprites/oveja-oreja-izq.png',
-  earR: 'sprites/oveja-oreja-der.png',
-  armL: 'sprites/oveja-brazo-izq.png',
-  armR: 'sprites/oveja-brazo-der.png',
+  body: 'sprites/oveja-cuerpo.webp',
+  footL: 'sprites/oveja-pie-izq.webp',
+  footR: 'sprites/oveja-pie-der.webp',
+  earL: 'sprites/oveja-oreja-izq.webp',
+  earR: 'sprites/oveja-oreja-der.webp',
+  armL: 'sprites/oveja-brazo-izq.webp',
+  armR: 'sprites/oveja-brazo-der.webp',
   bill: 'sprites/billete.webp',
   jesus: 'sprites/jesus.webp',
   party: 'sprites/oveja-fiesta.webp',
@@ -1397,7 +1396,10 @@ const PARTS = {
   armR: { x: 170.8, y: 174.4, px: 180.8, py: 182 },
 };
 const img = {};
-for (const [k, src] of Object.entries(SPRITES)) { img[k] = new Image(); img[k].src = src; }
+for (const [k, src] of Object.entries(SPRITES)) {
+  img[k] = new Image(); img[k].src = src;
+  img[k].decode?.().catch(() => {});   // se decodifican de antemano: evita tirones la primera vez que aparecen
+}
 const SHEEP_W = 50;              // ancho de la oveja en el mundo (tamaño en pantalla)
 const SPR_W = 213;               // ancho del sprite en píxeles
 const SPR_K = SHEEP_W / SPR_W;   // píxeles del sprite → unidades del mundo
@@ -1450,17 +1452,35 @@ function drawSky() {
   // Estrellas: aparecen al anochecer, son muchas en el espacio y se apagan en el cielo
   const starA = Math.max(clamp01((t - 0.45) * 1.8) * 0.9, sp) * (1 - hv);
   if (starA > 0.01) {
-    for (const st of stars) {
-      const y = ((st.y * H - camY * scale * 0.05) % H + H) % H;
-      const tw = 0.65 + 0.35 * Math.sin(time * 2.5 + st.x * 40);
-      ctx.fillStyle = `rgba(255,250,220,${starA * tw})`;
-      drawSparkle(st.x * W, y, st.r * 1.6);
+    // Se agrupan por brillo (y color) para pintarlas en pocas pasadas en vez de una por una
+    const LV = 5;
+    for (let lv = 0; lv < LV; lv++) {
+      ctx.beginPath();
+      let any = false;
+      for (const st of stars) {
+        const tw = 0.5 + 0.5 * Math.sin(time * 2.5 + st.x * 40);
+        if (Math.min(LV - 1, Math.floor(tw * LV)) !== lv) continue;
+        sparklePath(st.x * W, ((st.y * H - camY * scale * 0.05) % H + H) % H, st.r * 1.6);
+        any = true;
+      }
+      if (any) { ctx.fillStyle = `rgba(255,250,220,${starA * (0.65 + 0.35 * (lv + 0.5) / LV)})`; ctx.fill(); }
     }
     if (sp > 0) {
-      for (const st of spaceStars) {
-        const y = ((st.y * H - camY * scale * st.p) % H + H) % H;
-        ctx.fillStyle = `rgba(${st.c},${sp * (1 - hv) * (0.5 + 0.5 * Math.sin(time * 3 + st.x * 50))})`;
-        ctx.beginPath(); ctx.arc(st.x * W, y, st.r * Math.max(scale, 0.8), 0, Math.PI * 2); ctx.fill();
+      const rs = Math.max(scale, 0.8), a0 = sp * (1 - hv);
+      for (const col of SPACE_STAR_COLORS) {
+        for (let lv = 0; lv < LV; lv++) {
+          ctx.beginPath();
+          let any = false;
+          for (const st of spaceStars) {
+            if (st.c !== col) continue;
+            const tw = 0.5 + 0.5 * Math.sin(time * 3 + st.x * 50);
+            if (Math.min(LV - 1, Math.floor(tw * LV)) !== lv) continue;
+            const x = st.x * W, y = ((st.y * H - camY * scale * st.p) % H + H) % H, r = st.r * rs;
+            ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, Math.PI * 2);
+            any = true;
+          }
+          if (any) { ctx.fillStyle = `rgba(${col},${a0 * (lv + 0.5) / LV})`; ctx.fill(); }
+        }
       }
     }
   }
@@ -1525,9 +1545,10 @@ function drawMoon(x, y, r, a) {
 }
 
 // ---------- Espacio exterior (1000–2000 m) ----------
+const SPACE_STAR_COLORS = ['255,255,255', '200,220,255', '255,230,200', '255,200,240'];
 const spaceStars = Array.from({ length: 90 }, () => ({
   x: Math.random(), y: Math.random(), r: 0.6 + Math.random() * 1.4, p: 0.03 + Math.random() * 0.06,
-  c: ['255,255,255', '200,220,255', '255,230,200', '255,200,240'][Math.floor(Math.random() * 4)],
+  c: SPACE_STAR_COLORS[Math.floor(Math.random() * 4)],
 }));
 // Objetos colocados a lo largo del viaje: altura (m), posición x (0..1), tipo y tamaño
 const SPACE_KINDS = ['ringed', 'red', 'earth', 'galaxy', 'gas', 'moonrock', 'comet', 'asteroids', 'nebula', 'satellite'];
@@ -1536,15 +1557,28 @@ for (let m = SPACE_FROM_M + 30, i = 0; m < HEAVEN_FROM_M + 40; m += 42 + (i * 37
   spaceObjs.push({ m, x: [0.18, 0.78, 0.3, 0.7, 0.15, 0.85, 0.5][i % 7], kind: SPACE_KINDS[i % SPACE_KINDS.length], s: 0.8 + ((i * 53) % 10) / 20, rot: (i * 1.7) % 6.28 });
 }
 const SPACE_PAR = 0.22; // se mueven más despacio que los tablones (están lejos)
+const glowSprites = new Map();
+function glowSprite(col, alpha) {
+  const key = col + alpha;
+  let c = glowSprites.get(key);
+  if (!c) {
+    c = document.createElement('canvas'); c.width = c.height = 128;
+    const g = c.getContext('2d');
+    const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gr.addColorStop(0, `rgba(${col},${alpha})`); gr.addColorStop(1, `rgba(${col},0)`);
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+    glowSprites.set(key, c);
+  }
+  return c;
+}
 function drawSpace(a) {
   ctx.save();
   ctx.globalAlpha = a;
   // Nebulosas suaves de fondo
   for (const [fx, fy, rr, col] of [[0.2, 0.3, 0.55, '160,90,255'], [0.85, 0.7, 0.5, '255,90,190'], [0.5, 0.05, 0.4, '60,170,255']]) {
     const yy = ((fy * H - camY * scale * 0.02) % (H * 1.4) + H * 1.4) % (H * 1.4) - H * 0.2;
-    const gr = ctx.createRadialGradient(fx * W, yy, 0, fx * W, yy, rr * W);
-    gr.addColorStop(0, `rgba(${col},0.22)`); gr.addColorStop(1, `rgba(${col},0)`);
-    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+    // Degradado guardado en una imagen pequeña y estirado (un degradado suave no pierde calidad)
+    ctx.drawImage(glowSprite(col, 0.22), fx * W - rr * W, yy - rr * W, rr * W * 2, rr * W * 2);
   }
   const cm = (-camY - GH * 0.5) / PX_PER_M;
   const k = Math.max(scale, 0.8);
@@ -1565,7 +1599,46 @@ function planet(x, y, r, base, light, dark) {
   ctx.strokeStyle = OUTLINE; ctx.lineWidth = 3;
   ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
 }
+// ---------- Dibujos guardados ----------
+// Lo que no cambia de un cuadro a otro se pinta una sola vez en un lienzo aparte y luego solo se copia.
+const spriteCache = new Map();
+function cachedSprite(key, R, paint) {          // R: radio del dibujo en píxeles de pantalla
+  const id = `${key}|${dpr}`;
+  let c = spriteCache.get(id);
+  if (!c) {
+    c = document.createElement('canvas');
+    c.width = c.height = Math.ceil(R * 2 * dpr) + 4;
+    const g = c.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, c.width / 2, c.height / 2);
+    const prev = ctx, prevTime = time;
+    ctx = g; time = 0;
+    try { paint(); } finally { ctx = prev; time = prevTime; }
+    if (spriteCache.size > 80) spriteCache.clear();
+    spriteCache.set(id, c);
+  }
+  return c;
+}
+function blitSprite(c, x, y) {
+  const s = c.width / dpr;
+  ctx.drawImage(c, x - s / 2, y - s / 2, s, s);
+}
+// Radio de cada planeta/objeto del espacio (por tamaño 1); los asteroides se dibujan siempre (cada roca gira)
+const SPACE_R = { ringed: 72, red: 30, earth: 34, gas: 44, moonrock: 22, nebula: 100, galaxy: 50, comet: 100, satellite: 42 };
 function drawSpaceObj(o, x, y, k) {
+  const R = SPACE_R[o.kind];
+  if (!R) { paintSpaceObj(o, x, y, k); return; }
+  const kq = Math.round(k * 20) / 20;           // pocas variantes de tamaño
+  const c = cachedSprite(`space:${o.kind}:${kq}`, R * kq, () => paintSpaceObj({ ...o, rot: 0 }, 0, 0, kq));
+  // Lo que se mueve (giro de la galaxia y el satélite, vaivén del cometa) se aplica al copiar
+  if (o.kind === 'galaxy' || o.kind === 'satellite') {
+    ctx.save(); ctx.translate(x, y);
+    ctx.rotate(o.kind === 'galaxy' ? o.rot + time * 0.05 : Math.sin(time * 0.6 + o.rot) * 0.3);
+    blitSprite(c, 0, 0);
+    ctx.restore();
+  } else if (o.kind === 'comet') blitSprite(c, x + Math.sin(time * 0.3 + o.rot) * 20, y);
+  else blitSprite(c, x, y);
+}
+function paintSpaceObj(o, x, y, k) {
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
   switch (o.kind) {
     case 'ringed': {
@@ -1719,9 +1792,26 @@ function drawHeaven(hv) {
 
   drawGoldenCity(hv);
 }
+// La ciudad no cambia: se pinta una vez (por tamaño de pantalla) y al llegar solo se desliza hacia arriba
+let cityCache = null;
 function drawGoldenCity(hv) {
+  const ch = Math.min(H * 0.42, 340 * Math.max(scale, 0.8));
+  const key = `${W}x${H}x${dpr}`;
+  if (!cityCache || cityCache.key !== key) {
+    const c = document.createElement('canvas');
+    c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
+    const g = c.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const prev = ctx;
+    ctx = g;
+    try { paintGoldenCity(); } finally { ctx = prev; }
+    cityCache = { key, c };
+  }
+  ctx.drawImage(cityCache.c, 0, (1 - hv) * ch * 1.1, W, H);
+}
+function paintGoldenCity() {
   const ch = Math.min(H * 0.42, 340 * Math.max(scale, 0.8));       // alto de la ciudad
-  const baseY = H + (1 - hv) * ch * 1.1;                            // sube desde abajo al llegar
+  const baseY = H;
   const ox = 0;
   ctx.save();
   ctx.lineJoin = 'round';
@@ -1796,9 +1886,13 @@ function drawGoldenCity(hv) {
 
 function drawSparkle(x, y, r) {
   ctx.beginPath();
+  sparklePath(x, y, r);
+  ctx.fill();
+}
+function sparklePath(x, y, r) {
   ctx.moveTo(x, y - r); ctx.lineTo(x + r * 0.3, y - r * 0.3); ctx.lineTo(x + r, y);
   ctx.lineTo(x + r * 0.3, y + r * 0.3); ctx.lineTo(x, y + r); ctx.lineTo(x - r * 0.3, y + r * 0.3);
-  ctx.lineTo(x - r, y); ctx.lineTo(x - r * 0.3, y - r * 0.3); ctx.closePath(); ctx.fill();
+  ctx.lineTo(x - r, y); ctx.lineTo(x - r * 0.3, y - r * 0.3); ctx.closePath();
 }
 
 function cloudPath(x, y, s) {
@@ -2260,24 +2354,30 @@ function drawSheepMorph(s) {
   // Sheepy normal y encima su silueta blanca
   drawSheepLook(s, shownLook());
   if (white > 0.01) {
+    // Solo un recuadro alrededor de Sheepy (no toda la pantalla): mucho más liviano
+    const m = ctx.getTransform();
+    const k = Math.hypot(m.a, m.b);                         // píxeles reales por unidad del mundo
+    const bw = Math.ceil(150 * k), bh = Math.ceil(170 * k);
+    const c = m.transformPoint(new DOMPoint(s.x, s.y - SHEEP_H * 0.5));
+    const bx = Math.round(c.x - bw / 2), by = Math.round(c.y - bh / 2);
     if (!fxCv) fxCv = document.createElement('canvas');
-    if (fxCv.width !== canvas.width || fxCv.height !== canvas.height) { fxCv.width = canvas.width; fxCv.height = canvas.height; }
+    if (fxCv.width < bw || fxCv.height < bh) { fxCv.width = bw; fxCv.height = bh; }
     const fx = fxCv.getContext('2d');
-    const prev = ctx, m = ctx.getTransform();
     fx.setTransform(1, 0, 0, 1, 0, 0);
-    fx.clearRect(0, 0, fxCv.width, fxCv.height);
-    fx.setTransform(m);
+    fx.clearRect(0, 0, bw, bh);
+    fx.setTransform(m.a, m.b, m.c, m.d, m.e - bx, m.f - by);
+    const prev = ctx;
     ctx = fx;
     try { drawSheepLook(s, shownLook()); } finally { ctx = prev; }
     fx.setTransform(1, 0, 0, 1, 0, 0);
     fx.globalCompositeOperation = 'source-atop';
     fx.fillStyle = '#ffffff';
-    fx.fillRect(0, 0, fxCv.width, fxCv.height);
+    fx.fillRect(0, 0, bw, bh);
     fx.globalCompositeOperation = 'source-over';
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = white;
-    ctx.drawImage(fxCv, 0, 0);
+    ctx.drawImage(fxCv, 0, 0, bw, bh, bx, by, bw, bh);
     ctx.restore();
   }
 }
@@ -3384,8 +3484,8 @@ let last = performance.now();
 function loop(now) {
   const dt = Math.min((now - last) / 1000, 1 / 30);
   last = now;
-  if (mode !== 'over') update(dt);
-  draw();
+  // Mientras se ve el inicio, el menú o el fin de partida, el juego queda tapado: no se calcula ni se dibuja
+  if (mode === 'play') { update(dt); draw(); }
   requestAnimationFrame(loop);
 }
 

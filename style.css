@@ -102,8 +102,8 @@ h1 {
   text-wrap: balance;
 }
 .result-message { font-size: 1.05rem; font-weight: 700; line-height: 1.4; }
-#intro { display: flex; flex-direction: column; align-items: center; gap: 12px; width: 100%; }
-.how { font-size: 0.92rem; font-weight: 600; line-height: 1.45; color: var(--muted); }
+
+
 .best { font-family: var(--display); font-weight: 900; color: var(--accent); font-size: 1.05rem; letter-spacing: 0.03em; }
 .best:empty { display: none; }
 button {
@@ -129,9 +129,9 @@ button {
 .play-btn:hover { background: #f03a3f; }
 .play-btn:active { transform: translateY(4px); box-shadow: 0 1px 0 var(--line); }
 button:focus-visible { outline: 3px solid #3f8fd0; outline-offset: 3px; }
-.legend { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; font-size: 0.82rem; font-weight: 700; color: var(--muted); }
-.legend span { display: inline-flex; align-items: center; gap: 6px; }
-.legend i { display: inline-block; width: 22px; height: 9px; border-radius: 3px; border: 2px solid var(--line); }
+
+
+
 
 /* ---------- Nombre del jugador y ranking ---------- */
 .field { width: 100%; display: flex; flex-direction: column; gap: 6px; text-align: left; }
@@ -155,46 +155,31 @@ button:focus-visible { outline: 3px solid #3f8fd0; outline-offset: 3px; }
 .hint { font-size: 0.82rem; font-weight: 600; line-height: 1.4; color: var(--muted); }
 .hint:empty { display: none; }
 
-.ranking { width: 100%; border-top: 3px dashed #d8d1c6; padding-top: 12px; display: flex; flex-direction: column; gap: 8px; text-align: left; }
-.ranking h2 { font-family: var(--display); font-weight: 900; font-size: 1.15rem; letter-spacing: 0.03em; }
+
+
 .ranking-list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
-.ranking-list li {
-  display: grid;
-  grid-template-columns: 26px 1fr auto;
-  gap: 10px;
-  align-items: center;
-  padding: 5px 8px;
-  border-radius: 10px;
-  font-size: 0.95rem;
-  font-weight: 700;
-}
+
 .ranking-list .pos {
   font-family: var(--display);
   font-variant-numeric: tabular-nums;
   text-align: center;
   color: var(--muted);
 }
-.ranking-list li:nth-child(-n+3) .pos {
-  color: var(--ink);
-  background: var(--sun);
-  border: 2px solid var(--line);
-  border-radius: 50%;
-  width: 26px; height: 26px; line-height: 22px;
-}
-.ranking-list li:nth-child(2) .pos { background: #dfe6ec; }
-.ranking-list li:nth-child(3) .pos { background: #e7b07c; }
+
+
+
 .ranking-list .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ranking-list .score { font-family: var(--display); font-weight: 900; font-variant-numeric: tabular-nums; }
-.ranking-list li.me { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
-.ranking-list li.gap { display: block; text-align: center; color: var(--muted); padding: 0; }
-.ranking-list li.empty { display: block; color: var(--muted); font-size: 0.88rem; font-weight: 600; padding: 4px 0; }
+
+
+
 @media (prefers-reduced-motion: reduce) { .play-btn { transition: none; } }
 
 /* Pestañas del ranking */
-.ranking-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.tabs { display: flex; gap: 4px; background: #efe9de; border: 2px solid var(--line); border-radius: 12px; padding: 3px; }
-.tabs button { font-size: 0.78rem; font-weight: 800; padding: 4px 10px; border-radius: 8px; background: transparent; color: var(--muted); }
-.tabs button[aria-selected="true"] { background: var(--accent); color: #fff; box-shadow: 0 2px 0 var(--line); }
+
+
+
+
 
 /* Botón Guardar puntuación (secundario) */
 .save-btn {
@@ -359,7 +344,7 @@ body:has(#splash:not([hidden])) .screen { visibility: hidden; }
   padding: 18px;
   display: flex; flex-direction: column; align-items: center; gap: 14px;
 }
-#intro.panel { gap: 16px; }
+
 .steps { list-style: none; display: flex; flex-direction: column; gap: 14px; width: 100%; text-align: left; }
 .steps li { display: grid; grid-template-columns: 52px 1fr; gap: 12px; align-items: center; }
 .steps p { font-size: 1rem; font-weight: 600; line-height: 1.4; min-width: 0; }
@@ -406,9 +391,9 @@ kbd {
 }
 .play-btn:hover { background: #ff8a69; }
 .save-btn { background: var(--gold); }
-.ranking.panel { align-items: stretch; border-top: 4px solid var(--line); padding-top: 18px; }
-.ranking h2 { font-size: 1.4rem; color: var(--coral); -webkit-text-stroke: 1px var(--line); paint-order: stroke fill; text-align: center; }
-.ranking-list li.me { background: var(--coral-soft); box-shadow: inset 0 0 0 2px var(--coral); }
+
+
+
 .player:focus { box-shadow: 0 0 0 3px var(--gold); }
 
 /* ---------- Ranking mundial: podio, lista y tu posición ---------- */

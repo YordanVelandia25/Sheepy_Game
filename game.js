@@ -601,7 +601,10 @@ async function api(path, body) {
 }
 // ¿La base de datos todavía no tiene los niveles? (falta ejecutar supabase/ranking.sql nuevo)
 let legacyDb = false;
-const isMissingLevel = (err) => err && err.server && (err.code === '42703' || /level/i.test(err.detail || ''));
+const isMissingLevel = (err) => err && err.server && /level/i.test(err.detail || '') && !/name_key/i.test(err.detail || '');
+// ¿Falta la columna name_key (búsqueda rápida por nombre)? Entonces se busca como antes, con ilike
+let noNameKey = false;
+const isMissingNameKey = (err) => err && err.server && /name_key/i.test(err.detail || '');
 const levelFilter = (l) => (legacyDb ? '' : `&level=eq.${l}`);
 
 const world = {};   // nivel → { state: idle|loading|ok|error|legacy, top: [], error: '' }
@@ -806,8 +809,11 @@ async function loadMe(name, l = view.menu) {
   if (legacyDb && l !== 'dificil') return;
   const ticket = ++meLoading;
   try {
-    const like = key.replace(/[\\%_*]/g, (c) => '\\' + c);
-    const rows = await api(`/rest/v1/scores?select=name,meters${levelFilter(l)}&name=ilike.${encodeURIComponent(like)}&limit=1`);
+    // Búsqueda exacta por el nombre en minúsculas (usa el índice de la base de datos)
+    const byName = noNameKey
+      ? `name=ilike.${encodeURIComponent(key.replace(/[\\%_*]/g, (c) => '\\' + c))}`
+      : `name_key=eq.${encodeURIComponent(key.toLowerCase())}`;
+    const rows = await api(`/rest/v1/scores?select=name,meters${levelFilter(l)}&${byName}&limit=1`);
     if (ticket !== meLoading) return;
     if (!rows.length) { meOf[l] = null; renderRanking(); return; }
     const top = rows[0].meters;
@@ -819,6 +825,7 @@ async function loadMe(name, l = view.menu) {
     const total = Number((res.headers.get('content-range') || '').split('/')[1]);
     meOf[l] = { name: rows[0].name, best: top, rank: Number.isFinite(total) ? total + 1 : null };
   } catch (err) {
+    if (!noNameKey && isMissingNameKey(err)) { noNameKey = true; return loadMe(name, l); }
     if (!legacyDb && isMissingLevel(err)) { legacyDb = true; return loadMe(name, l); }
     if (ticket === meLoading) meOf[l] = null;
   }

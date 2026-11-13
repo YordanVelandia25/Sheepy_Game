@@ -47,8 +47,10 @@ alter table public.scores add constraint scores_name_check check (char_length(na
 alter table public.scores add constraint scores_meters_check check (meters between 1 and 100000);
 alter table public.scores add constraint scores_level_check check (level in ('facil', 'dificil', 'extremo'));
 drop index if exists public.scores_name_key;
+-- Nombre en minúsculas (lo calcula la base de datos sola): sirve para buscar a un jugador rápido
+alter table public.scores add column if not exists name_key text generated always as (lower(btrim(name))) stored;
 drop index if exists public.scores_name_level_key;
-create unique index scores_name_level_key on public.scores (lower(btrim(name)), level);
+create unique index scores_name_level_key on public.scores (name_key, level);   -- un registro por nombre y nivel + búsqueda por nombre
 drop index if exists public.scores_rank_idx;
 create index scores_rank_idx on public.scores (level, meters desc, created_at asc);
 
@@ -56,7 +58,7 @@ create index scores_rank_idx on public.scores (level, meters desc, created_at as
 --    No puede insertar, cambiar ni borrar filas directamente.
 alter table public.scores enable row level security;
 revoke all on public.scores from anon, authenticated;
-grant select (id, name, meters, level, created_at) on public.scores to anon, authenticated;
+grant select (id, name, name_key, meters, level, created_at) on public.scores to anon, authenticated;
 drop policy if exists "Ranking público" on public.scores;
 create policy "Ranking público" on public.scores for select to anon, authenticated using (true);
 
@@ -90,7 +92,7 @@ begin
   -- Evita que dos envíos simultáneos del mismo jugador choquen
   perform pg_advisory_xact_lock(hashtext(lower(v_name) || '|' || v_level));
 
-  select * into v_row from scores where lower(btrim(name)) = lower(v_name) and level = v_level limit 1;
+  select * into v_row from scores where name_key = lower(v_name) and level = v_level limit 1;
 
   if not found then
     insert into scores (name, meters, level) values (v_name, p_meters, v_level) returning * into v_row;

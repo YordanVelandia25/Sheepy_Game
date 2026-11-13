@@ -11,7 +11,7 @@ Es una PWA (Progressive Web App): se puede jugar en el navegador o instalar como
 - Cada choque con una abeja o un cardo quita un corazón. Si la oveja se cae, se acaba la partida.
 
 ## Ranking mundial (Supabase)
-Las puntuaciones se guardan en el dispositivo y, si está configurado, también en un ranking mundial en Supabase.
+Las puntuaciones se guardan en el dispositivo y, si está configurado, también en un ranking mundial en Supabase. Hay un ranking por cada nivel de dificultad (Fácil, Difícil y Extremo); las puntuaciones anteriores quedan en Difícil.
 
 1. En Supabase abre **SQL Editor → New query**, pega el contenido de `supabase/ranking.sql` y pulsa **Run** (vuelve a ejecutarlo cada vez que cambie ese archivo; es seguro repetirlo).
 2. En **Project Settings → API Keys** copia la clave pública (*anon public* o *publishable*).

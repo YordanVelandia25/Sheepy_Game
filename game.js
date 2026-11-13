@@ -24,11 +24,6 @@ $('startBtn').addEventListener('click', closeSplash);
 const metersEl = $('meters');
 const bestHudEl = $('bestHud');
 const heartsEl = $('hearts');
-const overlay = $('overlay');
-const titleEl = $('title');
-const messageEl = $('message');
-const bestEl = $('best');
-const playBtn = $('play');
 const soundBtn = $('sound');
 
 // ---------- Ajustes del juego (fáciles de cambiar) ----------
@@ -198,7 +193,7 @@ let trapped = 0, wind = null, fog = null, nextHoleM, nextWindM, nextFogM;
 let shield, boost, nextShieldM, nextHatM, nextFlipM, nextJesusM, nextStarM, nextGlassesM, blurry;
 let sheepTrail = [];
 let coffee = 0, mirror = 0, dark = null, nextCoffeeM, nextMirrorM, nextDarkM;
-let best = Number(safeGet('best-m') || 0);
+let best = 0;   // récord del nivel elegido (se carga con el nivel)
 
 const clouds = Array.from({ length: 5 }, () => ({
   x: Math.random(), y: Math.random(), s: 0.6 + Math.random() * 0.8, v: 4 + Math.random() * 8,
@@ -221,7 +216,7 @@ function reset() {
   boost = null;
   nextShieldM = SHIELD_FROM_M + Math.random() * 40;
   nextHatM = HAT_FROM_M + Math.random() * 80;
-  nextFlipM = FLIP_FROM_M + Math.random() * 80;
+  nextFlipM = (isExtreme() ? 80 : FLIP_FROM_M) + Math.random() * 80;
   nextJesusM = JESUS_FROM_M + Math.random() * 90;
   nextStarM = STAR_FROM_M + Math.random() * 80;
   nextGlassesM = GLASSES_FROM_M + Math.random() * 80;
@@ -244,6 +239,43 @@ function reset() {
   updateHud();
 }
 
+// ---------- Niveles de dificultad ----------
+//   Fácil: menos enemigos y menos objetos traviesos; se va poniendo más difícil poco a poco
+//   Difícil: el juego de siempre
+//   Extremo: enemigos, pinchos, cardos y minas desde el inicio, y más seguidos
+const LEVELS = {
+  facil: { name: 'Fácil', desc: 'Menos enemigos y menos objetos traviesos. La dificultad sube poco a poco.' },
+  dificil: { name: 'Difícil', desc: 'El reto de siempre: los enemigos aparecen a medida que subes.' },
+  extremo: { name: 'Extremo', desc: '¡Enemigos, pinchos, cardos y minas desde el primer salto!' },
+};
+const LEVEL_IDS = Object.keys(LEVELS);
+let level = LEVELS[safeGet('level')] ? safeGet('level') : 'dificil';
+const EXTREME_FROM_M = 6;   // en Extremo los enemigos empiezan casi desde el suelo
+const isExtreme = () => level === 'extremo';
+// Cantidad de enemigos (1 = como en Difícil)
+function enemyMul(m) {
+  if (level === 'facil') return 0.45 + 0.4 * clamp01(m / 2000);   // 45 % al inicio → 85 % a los 2000 m
+  if (level === 'extremo') return 1.3;
+  return 1;
+}
+// Cantidad de objetos traviesos (anteojos, café, espejo, linterna)
+function trickMul(m) {
+  if (level === 'facil') return 0.5 + 0.3 * clamp01(m / 2000);
+  if (level === 'extremo') return 1.15;
+  return 1;
+}
+// Cada cuánto cruzan la chancleta, la estrella fugaz, el viento y la neblina (más grande = menos seguido)
+const crossMul = () => (level === 'facil' ? 1.5 : level === 'extremo' ? 0.75 : 1);
+// Desde qué altura sale cada enemigo (en Extremo, desde el inicio)
+const fromM = (v) => (isExtreme() ? Math.min(v, EXTREME_FROM_M) : v);
+// Separación y ancho de los tablones según el nivel
+function levelDifficulty(m) {
+  const d = difficulty(m);
+  if (level === 'facil') return d * (0.75 + 0.2 * clamp01(m / 2500));
+  if (level === 'extremo') return Math.min(1.45, d + 0.15);
+  return d;
+}
+
 // Curva de dificultad: accesible hasta 1000 m, exigente hasta 2000 m y muy difícil después
 function difficulty(m) {
   if (m < SPACE_FROM_M) return 0.55 * (m / SPACE_FROM_M) + 0.12 * clamp01((m - 700) / 300);   // sube un poco desde 700 m
@@ -254,7 +286,7 @@ const heavenK = (m) => clamp01((m - HEAVEN_FROM_M) / 1000);   // 0 al entrar al 
 
 function genBar() {
   const m = -topY / PX_PER_M;              // altura de este tablón en metros
-  const d = difficulty(m);                 // 0 al inicio · 0,55 a 1000 m · 1 a 2000 m · hasta 1,35 en el cielo
+  const d = levelDifficulty(m);            // 0 al inicio · 0,55 a 1000 m · 1 a 2000 m · hasta 1,35 en el cielo
   const dc = Math.min(d, 1);
   const gap = Math.min(55 + Math.random() * (45 + 75 * d), 195);   // 195 px: lo máximo que alcanza un salto
   const y = topY - gap;
@@ -277,8 +309,10 @@ function genBar() {
   bars.push(bar);
 
   // Obstáculos: van apareciendo poco a poco y cada uno se vuelve más frecuente con la altura
-  const ramp = (from, span) => Math.min(Math.max((m - from) / span, 0), 1);
-  const late = 1 + 0.45 * ramp(700, 300);   // desde 700 m salen más enemigos
+  //   (en Extremo empiezan desde el inicio y ya con bastante frecuencia)
+  const ramp = (from, span) => Math.max(isExtreme() ? 0.5 : 0, Math.min(Math.max((m - fromM(from)) / span, 0), 1));
+  const em = enemyMul(m), tm = trickMul(m);
+  const late = (1 + 0.45 * Math.min(Math.max((m - 700) / 300, 0), 1)) * em;   // desde 700 m salen más enemigos
   const thornD = ramp(SAFE_M, 300), beeD = ramp(BEES_FROM_M, 400);
   const spikeD = ramp(SPIKES_FROM_M, 400), batD = ramp(BATS_FROM_M, 400);
 
@@ -295,10 +329,10 @@ function genBar() {
       nextHatM = m + 180 + Math.random() * 120;
     }
     else if (!prize && m >= SHIELD_FROM_M && m >= nextShieldM && Math.random() < 0.08) { prize = 'shield'; nextShieldM = m + (m >= HEAVEN_FROM_M ? 150 : 55) + Math.random() * 55; }
-    else if (!prize && m >= GLASSES_FROM_M && m >= nextGlassesM && Math.random() < 0.07) { prize = 'glasses'; nextGlassesM = m + 90 + Math.random() * 90; }
-    else if (!prize && m >= COFFEE_FROM_M && m >= nextCoffeeM && Math.random() < 0.04) { prize = 'coffee'; nextCoffeeM = m + 130 + Math.random() * 120; }
-    else if (!prize && m >= MIRROR_FROM_M && m >= nextMirrorM && Math.random() < 0.04) { prize = 'mirror'; nextMirrorM = m + 140 + Math.random() * 130; }
-    else if (!prize && m >= DARK_FROM_M && m >= nextDarkM && Math.random() < 0.035) { prize = 'flashlight'; nextDarkM = m + 180 + Math.random() * 150; }
+    else if (!prize && m >= GLASSES_FROM_M && m >= nextGlassesM && Math.random() < 0.07 * tm) { prize = 'glasses'; nextGlassesM = m + (90 + Math.random() * 90) / tm; }
+    else if (!prize && m >= COFFEE_FROM_M && m >= nextCoffeeM && Math.random() < 0.04 * tm) { prize = 'coffee'; nextCoffeeM = m + (130 + Math.random() * 120) / tm; }
+    else if (!prize && m >= MIRROR_FROM_M && m >= nextMirrorM && Math.random() < 0.04 * tm) { prize = 'mirror'; nextMirrorM = m + (140 + Math.random() * 130) / tm; }
+    else if (!prize && m >= DARK_FROM_M && m >= nextDarkM && Math.random() < 0.035 * tm) { prize = 'flashlight'; nextDarkM = m + (180 + Math.random() * 150) / tm; }
   }
   if (prize) foes.push({ kind: prize, bar, off: w / 2, x: 0, y: 0, r: 16, t: Math.random() * 6 });
   // Jesús: de pie en un tablón normal y ancho, en un extremo para que Sheepy pueda caer a su lado
@@ -318,14 +352,14 @@ function genBar() {
   //   0–1000 m: abejas y murciélagos · 1000–2000 m: drones y agujeros negros · desde 2000 m: burbujas
   const flyM = -(y + gap / 2) / PX_PER_M;
   if (flyM < SPACE_FROM_M) {
-    if (m >= BATS_FROM_M && Math.random() < (0.025 + 0.035 * batD) * late) flyer('bat', batD * 0.6, 50);
-    else if (m >= BEES_FROM_M && Math.random() < (0.04 + 0.05 * beeD) * late) flyer('bee', beeD * 0.6, 45);
+    if (m >= fromM(BATS_FROM_M) && Math.random() < (0.025 + 0.035 * batD) * late) flyer('bat', batD * 0.6, 50);
+    else if (m >= fromM(BEES_FROM_M) && Math.random() < (0.04 + 0.05 * beeD) * late) flyer('bee', beeD * 0.6, 45);
   } else if (flyM < HEAVEN_FROM_M) {
-    if (flyM >= nextHoleM && Math.random() < 0.14) {
+    if (flyM >= nextHoleM && Math.random() < 0.14 * Math.min(em, 1.15)) {
       nextHoleM = flyM + HOLE_SPACING_M * (1.2 - 0.5 * clamp01((flyM - SPACE_FROM_M) / 1000)) + Math.random() * 50;
       foes.push({ kind: 'hole', x: 50 + Math.random() * (GW - 100), y: y + gap / 2, baseY: y + gap / 2, t: Math.random() * 6, r: 0 });
-    } else if (Math.random() < 0.16 + 0.16 * clamp01((flyM - SPACE_FROM_M) / 1000)) flyer('drone', clamp01((flyM - SPACE_FROM_M) / 1000), 70);
-  } else if (Math.random() < 0.1 + 0.08 * heavenK(flyM)) {
+    } else if (Math.random() < (0.16 + 0.16 * clamp01((flyM - SPACE_FROM_M) / 1000)) * em) flyer('drone', clamp01((flyM - SPACE_FROM_M) / 1000), 70);
+  } else if (Math.random() < (0.1 + 0.08 * heavenK(flyM)) * em) {
     foes.push({ kind: 'bubble', x: 30 + Math.random() * (GW - 60), baseY: y + gap / 2, y: y + gap / 2, vx: (25 + Math.random() * 25) * (Math.random() < 0.5 ? -1 : 1), t: Math.random() * 6, r: 18 });
   }
 
@@ -346,9 +380,10 @@ function genBar() {
     const bm = -y / PX_PER_M;
     if (bm >= SPACE_FROM_M) {
       // Espacio: minas espaciales sobre los meteoritos (misma mecánica que cardos y pinchos)
-      if (bm < HEAVEN_FROM_M && Math.random() < 0.12 + 0.12 * clamp01((bm - SPACE_FROM_M) / 1000)) foes.push({ kind: 'mine', bar, off, x: 0, y: 0, r: 12, t: Math.random() * 6 });
-    } else if (m >= SPIKES_FROM_M && Math.random() < (0.03 + 0.04 * spikeD) * late) foes.push({ kind: 'spike', bar, off, x: 0, y: 0, r: 12 });
-    else if (m >= SAFE_M && Math.random() < (0.05 + 0.05 * thornD) * late) foes.push({ kind: 'thorn', bar, off, x: 0, y: 0, r: 12 });
+      if (bm < HEAVEN_FROM_M && Math.random() < (0.12 + 0.12 * clamp01((bm - SPACE_FROM_M) / 1000)) * em) foes.push({ kind: 'mine', bar, off, x: 0, y: 0, r: 12, t: Math.random() * 6 });
+    } else if (isExtreme() && m >= EXTREME_FROM_M && Math.random() < 0.04) foes.push({ kind: 'mine', bar, off, x: 0, y: 0, r: 12, t: Math.random() * 6 }); // Extremo: minas también de día
+    else if (m >= fromM(SPIKES_FROM_M) && Math.random() < (0.03 + 0.04 * spikeD) * late) foes.push({ kind: 'spike', bar, off, x: 0, y: 0, r: 12 });
+    else if (m >= fromM(SAFE_M) && Math.random() < (0.05 + 0.05 * thornD) * late) foes.push({ kind: 'thorn', bar, off, x: 0, y: 0, r: 12 });
   }
   topY = y;
 }
@@ -377,32 +412,53 @@ function puff(x, y, color, n = 6, spd = 120) {
   }
 }
 
-// ---------- Ranking: mundial (Supabase) y de este dispositivo ----------
-// Una sola puntuación por jugador (por nombre, sin distinguir mayúsculas):
+// ---------- Ranking: mundial (Supabase) y de este dispositivo, separado por nivel ----------
+// Una sola puntuación por jugador y nivel (por nombre, sin distinguir mayúsculas):
 // solo se reemplaza cuando se supera la anterior.
-const RANK_KEY = 'ranking-v1';
+const RANK_KEY = 'ranking-v1';                 // + '-facil' / '-extremo' (Difícil usa la clave de siempre)
 const PENDING_KEY = 'ranking-pendiente-v2';
 const DRAFT_KEY = 'partida-sin-guardar';
-const RANK_MAX = 50;   // jugadores guardados en el dispositivo
+const RANK_MAX = 50;   // jugadores guardados en el dispositivo (por nivel)
 const RANK_SHOW = 10;  // jugadores visibles
-const playerInput = $('player');
-const rankingEl = $('ranking');
-const savedEl = $('saved');
-const resultEl = $('result');
-const tabsPanel = document.querySelector('.tabs-panel');
-// Pestañas: Ranking / Cómo jugar
+const levelKey = (base, l) => (l === 'dificil' ? base : `${base}-${l}`);
+
+const CFG = window.OVEJA_CONFIG || {};
+const GLOBAL_ON = !!(CFG.supabaseUrl && CFG.supabaseKey);
+
+function loadJSON(key, fallback) {
+  try { const v = JSON.parse(safeGet(key) || 'null'); return v ?? fallback; } catch { return fallback; }
+}
+function byScore(a, b) { return b.m - a.m || a.t - b.t; }
+function cleanName(s) { return (s || '').replace(/\s+/g, ' ').trim().slice(0, 16); }
+function nameKey(s) { return cleanName(s).toLowerCase(); }
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+// ===================== Pantalla de reglas y podio =====================
+const menuUI = {
+  screen: $('menuScreen'),
+  best: $('menu-best'),
+  player: $('menu-player'),
+  play: $('menu-play'),
+  ranking: $('menu-ranking'),
+};
+// Pestañas: Ranking / Cómo jugar (solo existen en esta pantalla)
 const TAB_IDS = ['ranking', 'howto'];
 function selectTab(id, focus) {
   for (const t of TAB_IDS) {
-    const btn = $('tabBtn-' + t), on = t === id;
+    const btn = $('menu-tabBtn-' + t), on = t === id;
     btn.setAttribute('aria-selected', on);
     btn.tabIndex = on ? 0 : -1;
-    $('tab-' + t).hidden = !on;
+    $('menu-tab-' + t).hidden = !on;
     if (on && focus) btn.focus();
   }
 }
 for (const t of TAB_IDS) {
-  const btn = $('tabBtn-' + t);
+  const btn = $('menu-tabBtn-' + t);
   btn.addEventListener('click', () => selectTab(t));
   btn.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
@@ -411,30 +467,82 @@ for (const t of TAB_IDS) {
     selectTab(TAB_IDS[i], true);
   });
 }
-const saveBtn = $('save');
-const playerLabel = document.querySelector('label[for="player"]');
 
-const CFG = window.OVEJA_CONFIG || {};
-const GLOBAL_ON = !!(CFG.supabaseUrl && CFG.supabaseKey);
+// ===================== Pantalla de fin de partida =====================
+const overUI = {
+  screen: $('overScreen'),
+  title: $('over-title'),
+  message: $('over-message'),
+  best: $('over-best'),
+  label: $('over-label'),
+  player: $('over-player'),
+  saved: $('over-saved'),
+  save: $('over-save'),
+  play: $('over-play'),
+  ranking: $('over-ranking'),
+};
 
-let ranking = loadRanking();        // ranking del dispositivo
-let worldTop = [];                  // top 10 mundial
-let worldState = 'idle';            // idle | loading | ok | error
-let worldError = '';                // mensaje de Supabase si falló la carga
-let current = null;                 // última partida: { m, saved, name, local, world }
-best = Math.max(best, ranking[0]?.m || 0);
-playerInput.value = safeGet('player-name') || '';
-
-function loadJSON(key, fallback) {
-  try { const v = JSON.parse(safeGet(key) || 'null'); return v ?? fallback; } catch { return fallback; }
+// Muestra una pantalla ('menu' | 'over') o ninguna (null, mientras se juega)
+function showScreen(name) {
+  menuUI.screen.classList.toggle('hidden', name !== 'menu');
+  overUI.screen.classList.toggle('hidden', name !== 'over');
+  if (name) (name === 'menu' ? menuUI : overUI).screen.scrollTop = 0;
 }
-function byScore(a, b) { return b.m - a.m || a.t - b.t; }
-function cleanName(s) { return (s || '').replace(/\s+/g, ' ').trim().slice(0, 16); }
-function nameKey(s) { return cleanName(s).toLowerCase(); }
-function playerName() { return cleanName(playerInput.value) || 'Jugador'; }
 
-function loadRanking() {
-  const r = loadJSON(RANK_KEY, []);
+// --- Nombre del jugador: un campo en cada pantalla, siempre con el mismo valor ---
+const playerInputs = [menuUI.player, overUI.player];
+function setPlayerValue(v) { for (const i of playerInputs) if (i.value !== v) i.value = v; }
+function playerName() { return cleanName(menuUI.player.value) || 'Jugador'; }
+setPlayerValue(safeGet('player-name') || '');
+
+// --- Nivel de dificultad (se elige en ambas pantallas) ---
+const bestOf = {};
+for (const l of LEVEL_IDS) bestOf[l] = Number(safeGet(levelKey('best-m', l)) || 0);
+const rankingOf = {};
+for (const l of LEVEL_IDS) {
+  rankingOf[l] = loadRanking(l);
+  bestOf[l] = Math.max(bestOf[l], rankingOf[l][0]?.m || 0);
+}
+best = bestOf[level];
+const view = { menu: level, over: level };      // nivel del ranking que se ve en cada pantalla
+
+function setLevel(l, fromUser) {
+  if (!LEVELS[l]) return;
+  level = l;
+  safeSet('level', l);
+  best = bestOf[l];
+  for (const p of document.querySelectorAll('.level-picker')) {
+    for (const b of p.querySelectorAll('[data-level]')) b.setAttribute('aria-checked', b.dataset.level === l);
+    p.querySelector('.level-desc').textContent = LEVELS[l].desc;
+  }
+  if (mode !== 'play') reset();   // el mundo de fondo se prepara con el nivel nuevo
+  showBest();
+  if (fromUser) { view.menu = view.over = l; renderRanking(); loadWorld(l); loadMe(menuUI.player.value, l); }
+}
+for (const p of document.querySelectorAll('.level-picker')) {
+  for (const b of p.querySelectorAll('[data-level]')) b.addEventListener('click', () => setLevel(b.dataset.level, true));
+}
+// Selector "ver ranking de…" dentro de cada ranking
+for (const g of document.querySelectorAll('.rank-levels')) {
+  for (const b of g.querySelectorAll('[data-level]')) {
+    b.addEventListener('click', () => {
+      view[g.dataset.screen] = b.dataset.level;
+      renderRanking();
+      loadWorld(b.dataset.level);
+      loadMe(menuUI.player.value, b.dataset.level);
+    });
+  }
+}
+function showBest() {
+  const t = best ? `Récord en ${LEVELS[level].name}: ${best} m` : '';
+  menuUI.best.textContent = t;
+  if (mode !== 'over') overUI.best.textContent = t;
+  updateHud();
+}
+
+// --- Ranking del dispositivo (por nivel) ---
+function loadRanking(l) {
+  const r = loadJSON(levelKey(RANK_KEY, l), []);
   if (!Array.isArray(r)) return [];
   // Deja solo la mejor puntuación de cada jugador (también limpia datos antiguos)
   const bestBy = new Map();
@@ -445,72 +553,101 @@ function loadRanking() {
   }
   return [...bestBy.values()].sort(byScore).slice(0, RANK_MAX);
 }
-function saveRanking() { safeSet(RANK_KEY, JSON.stringify(ranking)); }
-
 // Guarda en el dispositivo. Devuelve { entry, improved }.
-function saveLocalScore(name, m) {
-  let entry = ranking.find((e) => nameKey(e.name) === nameKey(name));
+function saveLocalScore(name, m, l) {
+  let list = rankingOf[l];
+  let entry = list.find((e) => nameKey(e.name) === nameKey(name));
   let improved = false;
   if (!entry) {
     entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, m, t: Date.now() };
-    ranking.push(entry);
+    list.push(entry);
     improved = true;
   } else if (m > entry.m) {
     Object.assign(entry, { name, m, t: Date.now() });
     improved = true;
   }
-  ranking.sort(byScore);
-  ranking = ranking.slice(0, RANK_MAX);
-  saveRanking();
-  return { entry: ranking.includes(entry) ? entry : null, improved };
+  list.sort(byScore);
+  rankingOf[l] = list = list.slice(0, RANK_MAX);
+  safeSet(levelKey(RANK_KEY, l), JSON.stringify(list));
+  return { entry: list.includes(entry) ? entry : null, improved };
 }
 
 // --- API de Supabase (REST, sin librerías) ---
+function apiHeaders(extra) {
+  return {
+    apikey: CFG.supabaseKey,
+    // Las claves antiguas (anon, formato JWT "eyJ…") también van como Bearer;
+    // las nuevas (sb_publishable_…) solo en "apikey".
+    ...(CFG.supabaseKey.startsWith('eyJ') ? { Authorization: `Bearer ${CFG.supabaseKey}` } : {}),
+    ...extra,
+  };
+}
 async function api(path, body) {
   const res = await fetch(CFG.supabaseUrl.replace(/\/$/, '') + path, {
     method: body ? 'POST' : 'GET',
-    headers: {
-      apikey: CFG.supabaseKey,
-      // Las claves antiguas (anon, formato JWT "eyJ…") también van como Bearer;
-      // las nuevas (sb_publishable_…) solo en "apikey".
-      ...(CFG.supabaseKey.startsWith('eyJ') ? { Authorization: `Bearer ${CFG.supabaseKey}` } : {}),
-      'Content-Type': 'application/json',
-    },
+    headers: apiHeaders({ 'Content-Type': 'application/json' }),
     body: body ? JSON.stringify(body) : undefined,
     keepalive: !!body,
   });
   if (!res.ok) {
     // Error devuelto por Supabase (no de conexión): se muestra su mensaje
-    let detail = '';
-    try { const j = await res.json(); detail = j.message || j.hint || j.error || ''; } catch {}
+    let detail = '', code = '';
+    try { const j = await res.json(); detail = j.message || j.hint || j.error || ''; code = j.code || ''; } catch {}
     const err = new Error(`${res.status}${detail ? ': ' + detail : ''}`);
-    err.server = true;
+    Object.assign(err, { server: true, status: res.status, code, detail });
     throw err;
   }
   return res.status === 204 ? null : res.json();
 }
+// ¿La base de datos todavía no tiene los niveles? (falta ejecutar supabase/ranking.sql nuevo)
+let legacyDb = false;
+const isMissingLevel = (err) => err && err.server && (err.code === '42703' || /level/i.test(err.detail || ''));
+const levelFilter = (l) => (legacyDb ? '' : `&level=eq.${l}`);
 
-async function loadWorld() {
+const world = {};   // nivel → { state: idle|loading|ok|error|legacy, top: [], error: '' }
+for (const l of LEVEL_IDS) world[l] = { state: 'idle', top: [], error: '' };
+
+async function loadWorld(l = view.menu) {
   if (!GLOBAL_ON) return;
-  worldState = worldTop.length ? 'ok' : 'loading';
+  const w = world[l];
+  if (w.state === 'loading') return;
+  if (legacyDb && l !== 'dificil') { w.state = 'legacy'; renderRanking(); return; }
+  w.state = w.top.length ? 'ok' : 'loading';
   renderRanking();
   try {
-    worldTop = await api(`/rest/v1/scores?select=name,meters&order=meters.desc,created_at.asc&limit=${RANK_SHOW}`);
-    worldState = 'ok';
+    w.top = await api(`/rest/v1/scores?select=name,meters${levelFilter(l)}&order=meters.desc,created_at.asc&limit=${RANK_SHOW}`);
+    w.state = 'ok';
   } catch (err) {
-    worldState = 'error';
-    worldError = err.server ? err.message : '';
+    if (!legacyDb && isMissingLevel(err)) { legacyDb = true; w.state = 'idle'; return loadWorld(l); }
+    w.state = 'error';
+    w.error = err.server ? err.message : '';
     console.warn('Ranking mundial:', err);
   }
   renderRanking();
 }
+function loadAllWorlds() { for (const l of new Set([view.menu, view.over, level])) loadWorld(l); }
 
 // Cola de puntuaciones por enviar (sobrevive a cortes de conexión y recargas)
 let pending = loadJSON(PENDING_KEY, []);
 if (!Array.isArray(pending)) pending = [];
 const savePending = () => safeSet(PENDING_KEY, JSON.stringify(pending));
 let flushing = false;
+let current = null;   // última partida: { m, level, saved, name, local, world }
 
+async function submitScore(item) {
+  const l = item.level || 'dificil';
+  try {
+    return await api('/rest/v1/rpc/submit_score', { p_name: item.name, p_meters: item.m, p_level: l });
+  } catch (err) {
+    // Base de datos sin niveles: la función nueva no existe todavía
+    if (err.server && (err.status === 404 || err.code === 'PGRST202')) {
+      legacyDb = true;
+      if (l === 'dificil') return api('/rest/v1/rpc/submit_score', { p_name: item.name, p_meters: item.m });
+      throw Object.assign(new Error('falta actualizar la base de datos con supabase/ranking.sql'), { server: true, legacy: true });
+    }
+    throw err;
+  }
+}
 async function flushPending() {
   if (!GLOBAL_ON || flushing || !pending.length) return;
   flushing = true;
@@ -520,11 +657,11 @@ async function flushPending() {
       // La partida en pantalla puede cambiar mientras se envía: se guarda la referencia
       const game = current && current.world?.key === item.key ? current : null;
       try {
-        const [row] = await api('/rest/v1/rpc/submit_score', { p_name: item.name, p_meters: item.m });
+        const [row] = await submitScore(item);
         pending.shift(); savePending();
         if (!row || row.best_meters == null) throw Object.assign(new Error('respuesta inesperada; vuelve a ejecutar supabase/ranking.sql'), { server: true });
         if (game) Object.assign(game.world, { status: 'sent', rank: row.score_rank, best: row.best_meters, improved: row.improved });
-        if (nameKey(item.name) === nameKey(playerInput.value)) me = { name: item.name, best: row.best_meters, rank: row.score_rank };
+        if (nameKey(item.name) === nameKey(menuUI.player.value)) meOf[item.level || 'dificil'] = { name: item.name, best: row.best_meters, rank: row.score_rank };
       } catch (err) {
         if (game) Object.assign(game.world, { status: err.server ? 'error' : 'offline', error: err.message });
         console.warn('Ranking mundial:', err);
@@ -535,7 +672,7 @@ async function flushPending() {
     flushing = false;
   }
   showSaved();
-  loadWorld();
+  for (const l of LEVEL_IDS) if (world[l].state !== 'idle') { world[l].state = 'ok'; loadWorld(l); }
 }
 window.addEventListener('online', flushPending);
 
@@ -543,23 +680,23 @@ window.addEventListener('online', flushPending);
 function commitScore() {
   if (!current || current.saved) return;
   const name = playerName();
-  playerInput.value = name;
+  setPlayerValue(name);
   safeSet('player-name', name);
-  const local = saveLocalScore(name, current.m);
+  const local = saveLocalScore(name, current.m, current.level);
   const key = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   Object.assign(current, { saved: true, name, local: local.entry, localImproved: local.improved, world: { key, status: 'sending' } });
   safeSet(DRAFT_KEY, '');
   if (GLOBAL_ON) {
-    pending.push({ key, name, m: current.m });
+    pending.push({ key, name, m: current.m, level: current.level });
     savePending();
     flushPending();
   }
-  saveBtn.hidden = true;
-  playerLabel.textContent = 'Nombre del jugador';
+  overUI.save.hidden = true;
+  overUI.label.textContent = 'Nombre del jugador';
   showSaved();
   renderRanking();
 }
-saveBtn.addEventListener('click', commitScore);
+overUI.save.addEventListener('click', commitScore);
 
 // Si se cierra el juego sin guardar, se guarda solo
 function commitOnExit() { if (mode === 'over' && current && !current.saved) commitScore(); }
@@ -570,29 +707,23 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) commi
 function recoverDraft() {
   const d = loadJSON(DRAFT_KEY, null);
   if (!d || !Number.isFinite(d.m) || d.m <= 0) return;
-  const saved = playerInput.value;
-  playerInput.value = d.name || saved;
-  current = { m: d.m, saved: false, world: {} };
+  const saved = menuUI.player.value;
+  setPlayerValue(d.name || saved);
+  current = { m: d.m, level: LEVELS[d.level] ? d.level : 'dificil', saved: false, world: {} };
   commitScore();
   current = null;
-  playerInput.value = saved || playerInput.value;
-  safeSet('player-name', cleanName(playerInput.value));
-  savedEl.textContent = '';
+  setPlayerValue(saved || menuUI.player.value);
+  safeSet('player-name', cleanName(menuUI.player.value));
+  overUI.saved.textContent = '';
 }
 
-// --- Dibujo del ranking: podio (1-3), lista (4-10) y tu posición ---
+// --- Dibujo del ranking: podio (1-3), lista (4-10) y tu posición (en ambas pantallas) ---
 const AVATAR = 'sprites/avatar-sheepy.webp';
 // Avatares especiales del podio: 1.º Sheepy Corona, 2.º Sheepy Marinera, 3.º Sheepy La Bella
 const PODIUM_AVATARS = { 1: 'sprites/avatar-corona.webp', 2: 'sprites/avatar-marinera.webp', 3: 'sprites/avatar-bella.webp' };
-let me = null;          // { name, best, rank } del jugador actual en el ranking mundial
+const meOf = {};        // nivel → { name, best, rank } del jugador actual en el ranking mundial
 let meLoading = 0;
 
-function el(tag, cls, text) {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text != null) e.textContent = text;
-  return e;
-}
 function avatar(cls, src) {
   const wrap = el('span', 'avatar ' + (cls || ''));
   const im = document.createElement('img');
@@ -614,135 +745,150 @@ function podiumSpot(r, place, isMe) {
 }
 
 function renderRanking() {
-  rankingEl.replaceChildren();
-  const myKey = me ? nameKey(me.name) : (current?.saved ? nameKey(current.name) : null);
-  if (!GLOBAL_ON) { rankingEl.appendChild(note('El ranking mundial está disponible en la versión publicada del juego.')); return; }
-  if (worldState === 'loading' || worldState === 'idle') { rankingEl.appendChild(note('Cargando el ranking mundial…')); return; }
-  if (worldState === 'error') {
-    rankingEl.appendChild(note(worldError
-      ? `No se pudo cargar el ranking mundial (error ${worldError}).`
+  renderRankingInto(menuUI.ranking, view.menu, 'menu');
+  renderRankingInto(overUI.ranking, view.over, 'over');
+}
+function renderRankingInto(box, l, screen) {
+  for (const b of document.querySelectorAll(`.rank-levels[data-screen="${screen}"] [data-level]`)) b.setAttribute('aria-pressed', b.dataset.level === l);
+  box.replaceChildren();
+  const w = world[l], me = meOf[l];
+  const myKey = me ? nameKey(me.name) : (current?.saved && current.level === l ? nameKey(current.name) : null);
+  const lvName = LEVELS[l].name;
+  if (!GLOBAL_ON) { box.appendChild(note('El ranking mundial está disponible en la versión publicada del juego.')); return; }
+  if (w.state === 'legacy') { box.appendChild(note(`El ranking del nivel ${lvName} estará disponible cuando se actualice la base de datos.`)); return; }
+  if (w.state === 'loading' || w.state === 'idle') { box.appendChild(note(`Cargando el ranking de ${lvName}…`)); return; }
+  if (w.state === 'error') {
+    box.appendChild(note(w.error
+      ? `No se pudo cargar el ranking mundial (error ${w.error}).`
       : 'No se pudo cargar el ranking mundial. Revisa tu conexión.'));
     return;
   }
-  if (!worldTop.length) { rankingEl.appendChild(note('Todavía no hay puntuaciones en el mundo. ¡Sé la primera persona!')); return; }
+  if (!w.top.length) { box.appendChild(note(`Todavía no hay puntuaciones en ${lvName}. ¡Sé la primera persona!`)); return; }
 
   // Podio: 2.º a la izquierda, 1.º al centro, 3.º a la derecha
   const podium = el('div', 'podium');
   for (const place of [2, 1, 3]) {
-    const r = worldTop[place - 1];
+    const r = w.top[place - 1];
     podium.appendChild(r ? podiumSpot(r, place, nameKey(r.name) === myKey) : el('div', `spot p${place} empty`));
   }
-  rankingEl.appendChild(podium);
+  box.appendChild(podium);
 
   // Lista del 4.º al 10.º
-  if (worldTop.length > 3) {
+  if (w.top.length > 3) {
     const table = el('div', 'rank-table');
     const head = el('div', 'rank-head');
     head.append(el('span', null, 'Puesto'), el('span', null, 'Jugador'), el('span', null, 'Metros'));
     table.appendChild(head);
-    worldTop.slice(3).forEach((r, i) => {
+    w.top.slice(3).forEach((r, i) => {
       const row = el('div', 'rank-row' + (nameKey(r.name) === myKey ? ' me' : ''));
       row.append(el('span', 'pos', i + 4), avatar('sm'), el('span', 'name', r.name), el('span', 'score', `${r.meters} m`));
       table.appendChild(row);
     });
-    rankingEl.appendChild(table);
+    box.appendChild(table);
   }
 
-  // Tu posición
+  // Tu posición en este nivel
   if (me && me.rank) {
     const bar = el('div', 'me-bar');
     const info = el('div', 'me-info');
     const nm = el('span', 'me-name', me.name);
     nm.appendChild(el('span', 'you', 'TÚ'));
-    info.append(nm, el('span', 'me-best', `Mejor marca: ${me.best} m`));
+    info.append(nm, el('span', 'me-best', `Mejor marca en ${lvName}: ${me.best} m`));
     bar.append(el('span', 'me-rank', `#${me.rank}`), avatar('sm'), info);
-    rankingEl.appendChild(bar);
+    box.appendChild(bar);
   }
 }
 
-// Busca la mejor marca y el puesto de un nombre en el ranking mundial
-async function loadMe(name) {
+// Busca la mejor marca y el puesto de un nombre en el ranking mundial de un nivel
+async function loadMe(name, l = view.menu) {
   if (!GLOBAL_ON) return;
   const key = cleanName(name);
-  if (!key) { me = null; renderRanking(); return; }
+  if (!key) { meOf[l] = null; renderRanking(); return; }
+  if (legacyDb && l !== 'dificil') return;
   const ticket = ++meLoading;
   try {
     const like = key.replace(/[\\%_*]/g, (c) => '\\' + c);
-    const rows = await api(`/rest/v1/scores?select=name,meters&name=ilike.${encodeURIComponent(like)}&limit=1`);
+    const rows = await api(`/rest/v1/scores?select=name,meters${levelFilter(l)}&name=ilike.${encodeURIComponent(like)}&limit=1`);
     if (ticket !== meLoading) return;
-    if (!rows.length) { me = null; renderRanking(); return; }
-    const best = rows[0].meters;
-    const res = await fetch(`${CFG.supabaseUrl.replace(/\/$/, '')}/rest/v1/scores?select=id&meters=gt.${best}`, {
+    if (!rows.length) { meOf[l] = null; renderRanking(); return; }
+    const top = rows[0].meters;
+    const res = await fetch(`${CFG.supabaseUrl.replace(/\/$/, '')}/rest/v1/scores?select=id${levelFilter(l)}&meters=gt.${top}`, {
       method: 'HEAD',
-      headers: {
-        apikey: CFG.supabaseKey,
-        Prefer: 'count=exact',
-        ...(CFG.supabaseKey.startsWith('eyJ') ? { Authorization: `Bearer ${CFG.supabaseKey}` } : {}),
-      },
+      headers: apiHeaders({ Prefer: 'count=exact' }),
     });
     if (ticket !== meLoading) return;
     const total = Number((res.headers.get('content-range') || '').split('/')[1]);
-    me = { name: rows[0].name, best, rank: Number.isFinite(total) ? total + 1 : null };
-  } catch { if (ticket === meLoading) me = null; }
+    meOf[l] = { name: rows[0].name, best: top, rank: Number.isFinite(total) ? total + 1 : null };
+  } catch (err) {
+    if (!legacyDb && isMissingLevel(err)) { legacyDb = true; return loadMe(name, l); }
+    if (ticket === meLoading) meOf[l] = null;
+  }
   renderRanking();
 }
 
 function showSaved() {
+  const out = overUI.saved;
   if (!current) return;
+  const lv = LEVELS[current.level].name;
   if (!current.saved) {
-    savedEl.textContent = 'Escribe tu nombre y guarda. Cada jugador tiene una sola puntuación: solo se reemplaza si la superas.';
+    out.textContent = 'Escribe tu nombre y guarda. Cada jugador tiene una sola puntuación por nivel: solo se reemplaza si la superas.';
     return;
   }
   const name = `«${current.name}»`;
   const w = current.world;
   if (GLOBAL_ON && w.status === 'sent') {
-    savedEl.textContent = w.improved
-      ? `¡Nuevo récord de ${name}! Puesto ${w.rank} en el mundo.`
-      : `${name} ya tenía ${w.best} m, así que se mantiene esa marca (puesto ${w.rank} en el mundo).`;
+    out.textContent = w.improved
+      ? `¡Nuevo récord de ${name} en ${lv}! Puesto ${w.rank} en el mundo.`
+      : `${name} ya tenía ${w.best} m en ${lv}, así que se mantiene esa marca (puesto ${w.rank} en el mundo).`;
     return;
   }
-  if (GLOBAL_ON && w.status === 'offline') savedEl.textContent = `Sin conexión: la puntuación de ${name} se enviará al ranking mundial cuando vuelva internet.`;
-  else if (GLOBAL_ON && w.status === 'error') savedEl.textContent = `No se pudo guardar en el ranking mundial (error ${w.error}). Se volverá a intentar.`;
-  else if (GLOBAL_ON) savedEl.textContent = `Guardando a ${name} en el ranking mundial…`;
-  else savedEl.textContent = current.localImproved
-    ? `¡Nuevo récord de ${name}!`
-    : `${name} ya tenía ${current.local?.m} m, así que se mantiene esa marca.`;
+  if (GLOBAL_ON && w.status === 'offline') out.textContent = `Sin conexión: la puntuación de ${name} se enviará al ranking mundial cuando vuelva internet.`;
+  else if (GLOBAL_ON && w.status === 'error') out.textContent = `No se pudo guardar en el ranking mundial (error ${w.error}). Se volverá a intentar.`;
+  else if (GLOBAL_ON) out.textContent = `Guardando a ${name} en el ranking de ${lv}…`;
+  else out.textContent = current.localImproved
+    ? `¡Nuevo récord de ${name} en ${lv}!`
+    : `${name} ya tenía ${current.local?.m} m en ${lv}, así que se mantiene esa marca.`;
 }
 
 let meTimer = 0;
-playerInput.addEventListener('input', () => {
-  const name = cleanName(playerInput.value);
-  safeSet('player-name', name);
-  clearTimeout(meTimer);
-  meTimer = setTimeout(() => loadMe(name), 500);
-  if (mode === 'over' && current && !current.saved) {
-    safeSet(DRAFT_KEY, JSON.stringify({ name, m: current.m }));
-  }
-});
-playerInput.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter') return;
-  e.preventDefault();
-  if (mode === 'over' && current && !current.saved) commitScore();
-  else playerInput.blur();
-});
+for (const input of playerInputs) {
+  input.addEventListener('input', () => {
+    setPlayerValue(input.value);
+    const name = cleanName(input.value);
+    safeSet('player-name', name);
+    clearTimeout(meTimer);
+    meTimer = setTimeout(() => { for (const l of new Set([view.menu, view.over])) loadMe(name, l); }, 500);
+    if (mode === 'over' && current && !current.saved) {
+      safeSet(DRAFT_KEY, JSON.stringify({ name, m: current.m, level: current.level }));
+    }
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (mode === 'over' && current && !current.saved) commitScore();
+    else input.blur();
+  });
+}
 
 function start() {
   if (!splash.hidden || performance.now() < menuReadyAt) return; // aún en la pantalla de inicio
   commitOnExit(); // "Jugar otra vez" guarda la partida anterior si no se guardó
-  playerInput.value = cleanName(playerInput.value);
-  safeSet('player-name', playerInput.value);
+  setPlayerValue(cleanName(menuUI.player.value));
+  safeSet('player-name', menuUI.player.value);
   current = null;
-  savedEl.textContent = '';
-  saveBtn.hidden = true;
-  playerLabel.textContent = 'Nombre del jugador';
+  overUI.saved.textContent = '';
+  overUI.save.hidden = true;
+  overUI.label.textContent = 'Nombre del jugador';
   initAudio();
   if (audio && audio.state === 'suspended') audio.resume();
   reset();
   sheep.vy = -JUMP;
   sfx.boing();
   mode = 'play';
-  overlay.classList.add('hidden');
+  showScreen(null);
 }
+menuUI.play.addEventListener('click', () => start());
+overUI.play.addEventListener('click', () => start());
 
 // Frases al perder, según lo que hizo caer a Sheepy (sin repetir la última)
 const LOSS_PHRASES = {
@@ -771,28 +917,30 @@ function gameOver(reason) {
   blurry = 0; coffee = 0; mirror = 0; dark = null;
   trapped = 0; wind = null; fog = null;
   const m = meters();
+  const lv = LEVELS[level].name;
   const isRecord = m > best;
-  if (isRecord) { best = m; safeSet('best-m', best); }
+  if (isRecord) { best = bestOf[level] = m; safeSet(levelKey('best-m', level), best); }
   if (m > 0) {
-    current = { m, saved: false, world: {} };
-    safeSet(DRAFT_KEY, JSON.stringify({ name: playerName(), m }));
-    saveBtn.hidden = false;
-    playerLabel.textContent = 'Nombre para esta puntuación';
+    current = { m, level, saved: false, world: {} };
+    safeSet(DRAFT_KEY, JSON.stringify({ name: playerName(), m, level }));
+    overUI.save.hidden = false;
+    overUI.label.textContent = 'Nombre para esta puntuación';
     showSaved();
   } else {
     current = null;
-    saveBtn.hidden = true;
-    savedEl.textContent = 'Con 0 m la partida no se guarda en el ranking.';
+    overUI.save.hidden = true;
+    overUI.label.textContent = 'Nombre del jugador';
+    overUI.saved.textContent = 'Con 0 m la partida no se guarda en el ranking.';
   }
-  resultEl.hidden = false;
-  selectTab('ranking');
-  tabsPanel.classList.add('only-ranking'); // tras perder solo se muestra el ranking
+  // Pantalla de fin de partida: frase, metros, récord y el ranking del nivel jugado
+  overUI.title.textContent = lossPhrase(reason);
+  overUI.message.replaceChildren('Subiste ', el('strong', null, `${m} metros`), ' en ', el('span', 'level-tag', lv));
+  overUI.best.textContent = isRecord && m > 0 ? `¡Nuevo récord en ${lv}!` : best ? `Récord en ${lv}: ${best} m` : '';
+  menuUI.best.textContent = best ? `Récord en ${lv}: ${best} m` : '';
+  view.over = level;
   renderRanking();
-  titleEl.textContent = lossPhrase(reason);
-  messageEl.innerHTML = `Subiste <strong>${m} metros</strong>`;
-  bestEl.textContent = isRecord && m > 0 ? '¡Nuevo récord!' : best ? `Récord: ${best} m` : '';
-  playBtn.textContent = 'Jugar otra vez';
-  overlay.classList.remove('hidden');
+  loadWorld(level);
+  showScreen('over');
   updateHud();
 }
 
@@ -1175,22 +1323,22 @@ function update(dt) {
   const crossing = foes.some((f) => CROSSERS.has(f.kind));
   const mNow = meters();
   if (mNow >= nextFlipM && mNow < SPACE_FROM_M && !boost && !crossing) {          // chancleta: solo de día (300–1000 m)
-    nextFlipM = mNow + 220 + Math.random() * 180;
+    nextFlipM = mNow + (220 + Math.random() * 180) * crossMul();
     spawnCrosser('flip');
   } else if (mNow >= nextStarM && mNow < HEAVEN_FROM_M && !boost && !crossing) {   // estrella fugaz: solo en el espacio
-    nextStarM = mNow + 220 - 90 * clamp01((mNow - SPACE_FROM_M) / 1000) + Math.random() * 140;
+    nextStarM = mNow + (220 - 90 * clamp01((mNow - SPACE_FROM_M) / 1000) + Math.random() * 140) * crossMul();
     spawnCrosser('star');
   }
   // Neblina en el cielo (desde 2000 m): tapa la parte de arriba de la pantalla unos segundos
   if (fog) { fog.t += dt; if (fog.t > FOG_TIME) fog = null; }
   if (mNow >= HEAVEN_FROM_M && mNow >= nextFogM && !fog && !wind) {
-    nextFogM = mNow + 140 - 60 * heavenK(mNow) + Math.random() * (110 - 40 * heavenK(mNow));
+    nextFogM = mNow + (140 - 60 * heavenK(mNow) + Math.random() * (110 - 40 * heavenK(mNow))) * crossMul();
     fog = { t: 0 };
     showAnnounce('¡Uy, no veo nada!', '#6b7fa8');
   }
   // Ráfagas de viento en el cielo (desde 2000 m)
   if (mNow >= HEAVEN_FROM_M && mNow >= nextWindM && !wind && !fog) {
-    nextWindM = mNow + 110 - 50 * heavenK(mNow) + Math.random() * (100 - 40 * heavenK(mNow));
+    nextWindM = mNow + (110 - 50 * heavenK(mNow) + Math.random() * (100 - 40 * heavenK(mNow))) * crossMul();
     wind = { dir: Math.random() < 0.5 ? -1 : 1, t: 0, warn: 0.9 };
     showAnnounce('¡Ráfaga de viento!', '#2f7fd0');
     sfx.wind();
@@ -3241,11 +3389,8 @@ function loop(now) {
   requestAnimationFrame(loop);
 }
 
-playBtn.addEventListener('click', () => start());
-
 recoverDraft();
+setLevel(level);          // marca el nivel guardado en ambas pantallas y prepara el mundo
 renderRanking();
-if (GLOBAL_ON) { loadWorld(); flushPending(); loadMe(playerInput.value); }
-reset();
-bestEl.textContent = best ? `Récord: ${best} m` : '';
+if (GLOBAL_ON) { loadWorld(level); flushPending(); loadMe(menuUI.player.value, level); }
 requestAnimationFrame(loop);

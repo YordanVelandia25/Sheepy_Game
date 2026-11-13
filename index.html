@@ -12,7 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grandstander:wght@800;900&family=Jost:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="style.css?v=59">
+  <link rel="stylesheet" href="style.css?v=60">
 </head>
 <body>
 <!--GAME-START-->
@@ -45,32 +45,41 @@
     </div>
   </div>
 
-  <div id="overlay">
+  <!-- ===== Pantalla de reglas y podio (antes de jugar) ===== -->
+  <div id="menuScreen" class="screen">
     <div class="card">
       <h1 class="menu-logo" aria-label="Sheepy Jumps"><span class="w1">Sheepy</span> <span class="w2">Jumps</span></h1>
-      <div id="result" hidden>
-        <h2 id="title"></h2>
-        <p id="message"></p>
-      </div>
       <div class="panel player-panel">
-        <p id="best"></p>
+        <p id="menu-best" class="best"></p>
         <div class="field">
-          <label for="player">Nombre del jugador</label>
-          <input id="player" type="text" maxlength="16" autocomplete="nickname" enterkeyhint="go" placeholder="Escribe tu nombre" spellcheck="false">
-          <p id="saved" class="hint"></p>
+          <label for="menu-player">Nombre del jugador</label>
+          <input id="menu-player" class="player" type="text" maxlength="16" autocomplete="nickname" enterkeyhint="done" placeholder="Escribe tu nombre" spellcheck="false">
         </div>
-        <button id="save" type="button" hidden>Guardar puntuación</button>
-        <button id="play" type="button">Jugar</button>
+        <button id="menu-play" class="play-btn" type="button">Jugar</button>
+        <div class="level-picker" role="radiogroup" aria-labelledby="menu-level-title">
+          <span id="menu-level-title" class="level-title">Nivel de dificultad</span>
+          <div class="level-options">
+            <button type="button" role="radio" class="lv-facil" data-level="facil" aria-checked="false">Fácil</button>
+            <button type="button" role="radio" class="lv-dificil" data-level="dificil" aria-checked="true">Difícil</button>
+            <button type="button" role="radio" class="lv-extremo" data-level="extremo" aria-checked="false">Extremo</button>
+          </div>
+          <p class="level-desc"></p>
+        </div>
       </div>
       <section class="panel tabs-panel">
         <div class="tabbar" role="tablist" aria-label="Ranking y cómo jugar">
-          <button type="button" role="tab" id="tabBtn-ranking" aria-controls="tab-ranking" aria-selected="true">Ranking</button>
-          <button type="button" role="tab" id="tabBtn-howto" aria-controls="tab-howto" aria-selected="false" tabindex="-1">Cómo jugar</button>
+          <button type="button" role="tab" id="menu-tabBtn-ranking" aria-controls="menu-tab-ranking" aria-selected="true">Ranking</button>
+          <button type="button" role="tab" id="menu-tabBtn-howto" aria-controls="menu-tab-howto" aria-selected="false" tabindex="-1">Cómo jugar</button>
         </div>
-        <div id="tab-ranking" class="tab-page" role="tabpanel" aria-labelledby="tabBtn-ranking">
-          <div id="ranking"></div>
+        <div id="menu-tab-ranking" class="tab-page tab-ranking" role="tabpanel" aria-labelledby="menu-tabBtn-ranking">
+          <div class="rank-levels" role="group" aria-label="Ver ranking del nivel" data-screen="menu">
+            <button type="button" data-level="facil" aria-pressed="false">Fácil</button>
+            <button type="button" data-level="dificil" aria-pressed="true">Difícil</button>
+            <button type="button" data-level="extremo" aria-pressed="false">Extremo</button>
+          </div>
+          <div id="menu-ranking" class="ranking-list"></div>
         </div>
-        <div id="tab-howto" class="tab-page" role="tabpanel" aria-labelledby="tabBtn-howto" hidden>
+        <div id="menu-tab-howto" class="tab-page tab-howto" role="tabpanel" aria-labelledby="menu-tabBtn-howto" hidden>
           <p class="howto-lead">¡Salta de tablón en tablón y llega tan alto como puedas!</p>
           <ol class="steps">
             <li>
@@ -94,12 +103,54 @@
         </div>
       </section>
       <p class="spotify-note">Si quieres conocer más a Sheepy, escucha sus devocionales en Spotify haciendo <a href="https://open.spotify.com/show/0Z7CmJ9ni8woWhHWVAUjfO" target="_blank" rel="noopener noreferrer">clic aquí</a>.</p>
-<!--GAME-END-->
     </div>
   </div>
 
-  <script src="config.js?v=59"></script>
-  <script src="game.js?v=59"></script>
+  <!-- ===== Pantalla de fin de partida (volver a jugar) ===== -->
+  <div id="overScreen" class="screen hidden">
+    <div class="card">
+      <h1 class="menu-logo" aria-label="Sheepy Jumps"><span class="w1">Sheepy</span> <span class="w2">Jumps</span></h1>
+      <div class="result">
+        <h2 id="over-title" class="result-title"></h2>
+        <p id="over-message" class="result-message"></p>
+      </div>
+      <div class="panel player-panel">
+        <p id="over-best" class="best"></p>
+        <div class="field">
+          <label id="over-label" for="over-player">Nombre del jugador</label>
+          <input id="over-player" class="player" type="text" maxlength="16" autocomplete="nickname" enterkeyhint="go" placeholder="Escribe tu nombre" spellcheck="false">
+          <p id="over-saved" class="hint"></p>
+        </div>
+        <button id="over-save" class="save-btn" type="button" hidden>Guardar puntuación</button>
+        <button id="over-play" class="play-btn" type="button">Jugar otra vez</button>
+        <div class="level-picker" role="radiogroup" aria-labelledby="over-level-title">
+          <span id="over-level-title" class="level-title">Nivel de dificultad</span>
+          <div class="level-options">
+            <button type="button" role="radio" class="lv-facil" data-level="facil" aria-checked="false">Fácil</button>
+            <button type="button" role="radio" class="lv-dificil" data-level="dificil" aria-checked="true">Difícil</button>
+            <button type="button" role="radio" class="lv-extremo" data-level="extremo" aria-checked="false">Extremo</button>
+          </div>
+          <p class="level-desc"></p>
+        </div>
+      </div>
+      <section class="panel tabs-panel">
+        <h2 class="panel-title">Ranking</h2>
+        <div class="tab-page tab-ranking">
+          <div class="rank-levels" role="group" aria-label="Ver ranking del nivel" data-screen="over">
+            <button type="button" data-level="facil" aria-pressed="false">Fácil</button>
+            <button type="button" data-level="dificil" aria-pressed="true">Difícil</button>
+            <button type="button" data-level="extremo" aria-pressed="false">Extremo</button>
+          </div>
+          <div id="over-ranking" class="ranking-list"></div>
+        </div>
+      </section>
+      <p class="spotify-note">Si quieres conocer más a Sheepy, escucha sus devocionales en Spotify haciendo <a href="https://open.spotify.com/show/0Z7CmJ9ni8woWhHWVAUjfO" target="_blank" rel="noopener noreferrer">clic aquí</a>.</p>
+    </div>
+  </div>
+<!--GAME-END-->
+
+  <script src="config.js?v=60"></script>
+  <script src="game.js?v=60"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));

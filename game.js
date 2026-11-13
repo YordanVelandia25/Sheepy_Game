@@ -68,7 +68,7 @@ const STAR_FROM_M = 1000;  // estrella fugaz: solo en el espacio (1000–2000 m)
 const GLASSES_FROM_M = 150; // anteojos: distorsionan la vista un rato (poco frecuentes)
 const GLASSES_TIME = 8;
 // Más objetos "traviesos" (no quitan vida, complican un rato)
-const COFFEE_FROM_M = 250, COFFEE_TIME = 8, COFFEE_SPEED = 1.8;  // café: Sheepy va acelerada
+const COFFEE_FROM_M = 250, COFFEE_TIME = 8, COFFEE_SPEED = 2.5;  // café: Sheepy va acelerada
 const MIRROR_FROM_M = 350, MIRROR_TIME = 8;                      // espejo: controles invertidos
 const DARK_FROM_M = 450, DARK_TIME = 8, DARK_LIGHT_AT = 7;       // linterna apagada: oscuridad; al seg. 7 vuelve la luz
 const SPRING_M = 30;       // resorte en los tablones: impulsa 30 m (desde el inicio, frecuente)
@@ -254,15 +254,15 @@ const EXTREME_FROM_M = 6;   // en Extremo los enemigos empiezan casi desde el su
 const isExtreme = () => level === 'extremo';
 // Cantidad de enemigos (1 = como en Difícil)
 function enemyMul(m) {
-  if (level === 'facil') return 0.45 + 0.4 * clamp01(m / 2000);   // 45 % al inicio → 85 % a los 2000 m
-  if (level === 'extremo') return 1.3;
+  if (level === 'facil') return 0.3 + 0.35 * clamp01(m / 2000);   // 30 % al inicio → 65 % a los 2000 m
+  if (level === 'extremo') return 1.8;
   return 1;
 }
 // Cantidad de objetos traviesos (anteojos, café, espejo, linterna)
 function trickMul(m) {
   if (level === 'facil') return 0.5 + 0.3 * clamp01(m / 2000);
   if (level === 'extremo') return 1.15;
-  return 1;
+  return 0.7;   // Difícil: menos objetos traviesos que antes
 }
 // Cada cuánto cruzan la chancleta, la estrella fugaz, el viento y la neblina (más grande = menos seguido)
 const crossMul = () => (level === 'facil' ? 1.5 : level === 'extremo' ? 0.75 : 1);

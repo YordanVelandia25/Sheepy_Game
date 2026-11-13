@@ -7,12 +7,13 @@
   <meta name="description" content="Ayuda a la oveja a saltar de tablón en tablón y subir lo más alto posible.">
   <meta name="theme-color" content="#47a6e0">
   <link rel="manifest" href="manifest.json">
-  <link rel="icon" href="icons/icon-192.png">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="64x64" href="icons/favicon-64.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Grandstander:wght@800;900&family=Jost:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="style.css?v=63">
+  <link rel="stylesheet" href="style.css?v=64">
 </head>
 <body>
 <!--GAME-START-->
@@ -32,6 +33,7 @@
       </div>
     </div>
     <button id="startBtn" type="button">Iniciar</button>
+    <p class="signature">Made with <span class="heart" aria-label="love">❤</span> by N²</p>
   </div>
 
   <div id="hud">
@@ -149,8 +151,8 @@
   </div>
 <!--GAME-END-->
 
-  <script src="config.js?v=63"></script>
-  <script src="game.js?v=63"></script>
+  <script src="config.js?v=64"></script>
+  <script src="game.js?v=64"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));

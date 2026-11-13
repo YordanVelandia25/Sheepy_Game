@@ -1,6 +1,6 @@
 // Service worker: guarda los archivos en caché para que el juego funcione sin conexión.
 // Usa primero la red, así que los cambios publicados llegan sin esperar. Sube la versión si cambias la lista de archivos.
-const CACHE = 'sheepy-v63';
+const CACHE = 'sheepy-v64';
 const ASSETS = [
   './',
   'index.html',
@@ -40,6 +40,8 @@ const ASSETS = [
   'icons/icon-192.png',
   'icons/icon-512.png',
   'icons/icon-maskable-512.png',
+  'icons/apple-touch-icon.png',
+  'icons/favicon-64.png',
 ];
 
 self.addEventListener('install', (event) => {

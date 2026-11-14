@@ -1,4 +1,27 @@
 // Sheepy Jumps — la oveja rebota sola sobre los tablones; tú la mueves a izquierda y derecha.
+
+// ---------- Compatibilidad con teléfonos y navegadores más viejos ----------
+// Rectángulos redondeados en el lienzo (no existen en Android anterior a 2022 ni en iOS 15 o anterior)
+if (window.CanvasRenderingContext2D && !CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+    let rr = Array.isArray(r) ? r[0] : r;
+    rr = Math.max(0, Math.min(Number(rr) || 0, Math.abs(w) / 2, Math.abs(h) / 2));
+    this.moveTo(x + rr, y);
+    this.arcTo(x + w, y, x + w, y + h, rr);
+    this.arcTo(x + w, y + h, x, y + h, rr);
+    this.arcTo(x, y + h, x, y, rr);
+    this.arcTo(x, y, x + w, y, rr);
+    this.closePath();
+  };
+}
+// Vaciar y llenar un elemento de una vez (no existe en navegadores de antes de 2020)
+if (window.Element && !Element.prototype.replaceChildren) {
+  Element.prototype.replaceChildren = function (...nodes) {
+    while (this.firstChild) this.removeChild(this.firstChild);
+    for (const n of nodes) this.appendChild(typeof n === 'string' ? document.createTextNode(n) : n);
+  };
+}
+
 const canvas = document.getElementById('game');
 const mainCtx = canvas.getContext('2d');
 let ctx = mainCtx; // se cambia por un lienzo aparte mientras los anteojos distorsionan el mundo
@@ -18,7 +41,7 @@ function closeSplash() {
     sfx.record();
   } catch (err) { console.warn('Sonido no disponible:', err); }
   splash.classList.add('leaving');
-  setTimeout(() => { splash.hidden = true; }, 450);
+  setTimeout(() => { splash.hidden = true; document.body.classList.remove('splash-on'); }, 450);
 }
 $('startBtn').addEventListener('click', closeSplash);
 const metersEl = $('meters');
@@ -76,10 +99,29 @@ const SPRING_CHANCE = 0.08;
 const SPRING_SHIELD_CHANCE = 0.4; // 40 % de los resortes llevan un escudo flotando en su trayectoria
 const SPRING_V = Math.sqrt(2 * GRAVITY * SPRING_M * PX_PER_M);
 
+// ---------- Calidad gráfica ----------
+// "auto" elige según el teléfono y baja sola si el juego va lento. Solo cambian adornos visuales,
+// nunca la jugabilidad (enemigos, objetos y dificultad son iguales en todas).
+//   alta: todo · media: resolución 1,5×, menos estrellas, sin rayos en el cielo, un solo fantasma del café
+//   ahorro: resolución 1×, anteojos sin borroso ni visión doble, destello simple al cambiar de skin
+const QUALITY_IDS = ['auto', 'alta', 'ahorro'];
+const QUALITY_NAMES = { auto: 'Auto', alta: 'Alta', ahorro: 'Ahorro' };
+let quality = (() => { try { const q = localStorage.getItem('quality'); return QUALITY_IDS.includes(q) ? q : 'auto'; } catch { return 'auto'; } })();
+function deviceTier() {
+  const mem = navigator.deviceMemory || 8;          // en GB (solo Android lo informa; si no se sabe, se confía)
+  const cores = navigator.hardwareConcurrency || 4;
+  if (mem <= 2 || cores <= 2) return 'ahorro';
+  if (mem <= 4) return 'media';
+  return 'alta';
+}
+let autoTier = deviceTier();
+let gfx = quality === 'auto' ? autoTier : quality;   // calidad en uso: alta | media | ahorro
+const GFX_DPR = { alta: 2, media: 1.5, ahorro: 1 };
+
 // ---------- Pantalla ----------
 let W, H, dpr, scale, GH, offX;
 function resize() {
-  dpr = Math.min(window.devicePixelRatio || 1, 2);   // más de 2× no se nota y cuesta mucho dibujar
+  dpr = Math.min(window.devicePixelRatio || 1, GFX_DPR[gfx]);   // más resolución no se nota y cuesta mucho dibujar
   W = canvas.clientWidth || window.innerWidth;
   H = canvas.clientHeight || window.innerHeight;
   canvas.width = Math.round(W * dpr);
@@ -199,6 +241,9 @@ const clouds = Array.from({ length: 5 }, () => ({
   x: Math.random(), y: Math.random(), s: 0.6 + Math.random() * 0.8, v: 4 + Math.random() * 8,
 }));
 const stars = Array.from({ length: 70 }, () => ({ x: Math.random(), y: Math.random(), r: Math.random() * 1.6 + 0.4 }));
+// Menos estrellas en calidad media (la mitad) y ahorro (un tercio)
+const thinOut = (arr) => ({ alta: arr, media: arr.filter((_, i) => i % 2 === 0), ahorro: arr.filter((_, i) => i % 3 === 0) });
+const STARS = thinOut(stars);
 
 function meters() { return Math.max(0, Math.floor(-maxY / PX_PER_M)); }
 
@@ -403,6 +448,7 @@ function updateHud() {
   while (heartsEl.children.length > slots) heartsEl.lastElementChild.remove();
   [...heartsEl.children].forEach((im, i) => im.classList.toggle('lost', i >= hearts));
   heartsEl.setAttribute('aria-label', `Vidas: ${hearts} de ${slots}`);
+  heartsEl.classList.toggle('has-bonus', slots > MAX_HEARTS);
 }
 
 function puff(x, y, color, n = 6, spd = 120) {
@@ -1464,7 +1510,7 @@ function drawSky() {
     for (let lv = 0; lv < LV; lv++) {
       ctx.beginPath();
       let any = false;
-      for (const st of stars) {
+      for (const st of STARS[gfx]) {
         const tw = 0.5 + 0.5 * Math.sin(time * 2.5 + st.x * 40);
         if (Math.min(LV - 1, Math.floor(tw * LV)) !== lv) continue;
         sparklePath(st.x * W, ((st.y * H - camY * scale * 0.05) % H + H) % H, st.r * 1.6);
@@ -1478,7 +1524,7 @@ function drawSky() {
         for (let lv = 0; lv < LV; lv++) {
           ctx.beginPath();
           let any = false;
-          for (const st of spaceStars) {
+          for (const st of SPACE_STARS[gfx]) {
             if (st.c !== col) continue;
             const tw = 0.5 + 0.5 * Math.sin(time * 3 + st.x * 50);
             if (Math.min(LV - 1, Math.floor(tw * LV)) !== lv) continue;
@@ -1559,6 +1605,7 @@ const spaceStars = Array.from({ length: 90 }, () => ({
   x: Math.random(), y: Math.random(), r: 0.6 + Math.random() * 1.4, p: 0.03 + Math.random() * 0.06,
   c: SPACE_STAR_COLORS[Math.floor(Math.random() * 4)],
 }));
+const SPACE_STARS = thinOut(spaceStars);
 // Objetos colocados a lo largo del viaje: altura (m), posición x (0..1), tipo y tamaño
 const SPACE_KINDS = ['ringed', 'red', 'earth', 'galaxy', 'gas', 'moonrock', 'comet', 'asteroids', 'nebula', 'satellite'];
 const spaceObjs = [];
@@ -1780,11 +1827,11 @@ const CITY = (() => {
 })();
 function drawHeaven(hv) {
   ctx.save();
-  // Rayos de luz desde arriba
-  ctx.globalAlpha = 0.35 * hv;
+  // Rayos de luz desde arriba (solo en calidad alta)
+  ctx.globalAlpha = gfx === 'alta' ? 0.35 * hv : 0;
   ctx.translate(W / 2, -H * 0.1);
   ctx.rotate(Math.sin(time * 0.15) * 0.1);
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < (gfx === 'alta' ? 12 : 0); i++) {
     ctx.rotate(Math.PI / 12);
     const gr = ctx.createLinearGradient(0, 0, 0, H * 1.3);
     gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
@@ -1796,7 +1843,7 @@ function drawHeaven(hv) {
   // Brillitos dorados flotando
   ctx.save();
   ctx.globalAlpha = hv;
-  for (const st of stars) {
+  for (const st of STARS[gfx]) {
     const y = ((st.y * H - camY * scale * 0.08 - time * 12) % H + H) % H;
     ctx.fillStyle = `rgba(255,215,90,${0.5 + 0.5 * Math.sin(time * 2 + st.x * 30)})`;
     drawSparkle(st.x * W, y, st.r * 2);
@@ -2367,7 +2414,7 @@ function drawSheepMorph(s) {
   ctx.restore();
   // Sheepy normal y encima su silueta blanca
   drawSheepLook(s, shownLook());
-  if (white > 0.01) {
+  if (white > 0.01 && gfx !== 'ahorro') {
     // Solo un recuadro alrededor de Sheepy (no toda la pantalla): mucho más liviano
     const m = ctx.getTransform();
     const k = Math.hypot(m.a, m.b);                         // píxeles reales por unidad del mundo
@@ -2458,7 +2505,7 @@ function drawSheepLook(s, look) {
   const speedy = look === 'coffee';
   // Sheepy veloz: deja imágenes fantasma detrás (solo si de verdad se está moviendo)
   if (speedy && !s.ghost) {
-    for (const [i, a] of [[12, 0.12], [8, 0.2], [4, 0.32]]) {
+    for (const [i, a] of GHOSTS[gfx]) {
       const p = sheepTrail[i];
       if (!p || Math.hypot(p.x - s.x, p.y - s.y) < 6 || Math.abs(p.x - s.x) > GW / 2) continue;
       ctx.save();
@@ -2519,6 +2566,9 @@ function drawSheepLook(s, look) {
   if (boost && boost.style !== 'rocket' && boost.style !== 'wings') { ctx.translate(0, top + 4); drawPropHat(boost.t, 1); }
   ctx.restore();
 }
+
+// Imágenes fantasma del café según la calidad: [cuántos cuadros atrás, transparencia]
+const GHOSTS = { alta: [[12, 0.12], [8, 0.2], [4, 0.32]], media: [[6, 0.28]], ahorro: [] };
 
 // ---------- Sheepy veloz (café): gafas de carreras, rayo en la gorra y la panza, bufanda al viento y tenis en llamas ----------
 // Todo se dibuja en coordenadas del sprite clásico (213 × 363 px)
@@ -3428,7 +3478,7 @@ function draw() {
   const distort = wob > 0.01;
   ctx = mainCtx;
   if (lastFilter) { canvas.style.filter = ''; lastFilter = ''; }
-  if (distort) ctx = worldCtx() || mainCtx;
+  if (distort && gfx !== 'ahorro') ctx = worldCtx() || mainCtx;   // en ahorro: solo se tambalea, sin lienzo extra
   else if (worldCv) worldCv = null;                        // sin anteojos se suelta el lienzo extra
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   drawSky();
@@ -3500,10 +3550,12 @@ let last = performance.now();
 let lastLoopError = '';
 function loop(now) {
   requestAnimationFrame(loop);
-  const dt = Math.min((now - last) / 1000, 1 / 30);
+  const gapMs = now - last;
+  const dt = Math.min(gapMs / 1000, 1 / 30);
   last = now;
   // Mientras se ve el inicio, el menú o el fin de partida, el juego queda tapado: no se calcula ni se dibuja
   if (mode !== 'play') return;
+  watchSpeed(gapMs);
   try {
     update(dt);
     draw();
@@ -3511,9 +3563,76 @@ function loop(now) {
     ctx = mainCtx;
     ctx.globalAlpha = 1; ctx.filter = 'none'; ctx.globalCompositeOperation = 'source-over';
     const msg = `${err && err.message} @ ${meters()} m`;
-    if (msg !== lastLoopError) { lastLoopError = msg; console.error('Sheepy Jumps:', err); safeSet('ultimo-error', msg); }
+    if (msg !== lastLoopError) { lastLoopError = msg; console.error('Sheepy Jumps:', err); safeSet('ultimo-error', msg); reportError('juego', `${err && err.message}`, err && err.stack); }
   }
 }
+
+// ---------- Calidad automática: si el juego va lento, baja la calidad sola ----------
+let frameAvg = 16.7, slowFor = 0;
+function watchSpeed(gapMs) {
+  if (quality !== 'auto' || gfx === 'ahorro' || gapMs > 250) return;   // >250 ms: la app estuvo en pausa, no cuenta
+  frameAvg += (gapMs - frameAvg) * 0.05;
+  slowFor = frameAvg > 24 ? slowFor + gapMs : 0;                     // más lento que ~42 cuadros por segundo…
+  if (slowFor > 2500) {                                              // …durante 2,5 segundos seguidos
+    autoTier = gfx === 'alta' ? 'media' : 'ahorro';
+    setGfx(autoTier);
+    frameAvg = 16.7; slowFor = 0;
+  }
+}
+function setGfx(tier) {
+  if (gfx === tier) return;
+  gfx = tier;
+  resize();
+  clearDrawCaches();
+  showQuality();
+}
+// Botón "Calidad": cada toque pasa a la siguiente opción (Auto → Alta → Ahorro)
+const qualityBtns = [...document.querySelectorAll('.q-pill')];
+function showQuality() {
+  for (const b of qualityBtns) {
+    b.querySelector('b').textContent = QUALITY_NAMES[quality];
+    const detail = quality === 'auto' ? ` (ahora: ${gfx === 'alta' ? 'alta' : gfx === 'media' ? 'media' : 'ahorro'})` : '';
+    b.setAttribute('aria-label', `Calidad gráfica: ${QUALITY_NAMES[quality]}${detail}. Toca para cambiar`);
+    b.title = `Calidad gráfica: ${QUALITY_NAMES[quality]}${detail}`;
+  }
+}
+for (const b of qualityBtns) {
+  b.addEventListener('click', () => {
+    quality = QUALITY_IDS[(QUALITY_IDS.indexOf(quality) + 1) % QUALITY_IDS.length];
+    safeSet('quality', quality);
+    if (quality === 'auto') autoTier = deviceTier();
+    setGfx(quality === 'auto' ? autoTier : quality);
+    showQuality();
+  });
+}
+showQuality();
+
+// ---------- Reporte de errores (anónimo) ----------
+// Si algo falla en el teléfono de alguien, se manda un aviso corto a Supabase (sin nombre del jugador):
+// el error, dónde iba (metros, nivel, calidad) y el modelo de teléfono/navegador. Máximo 3 por sesión.
+const APP_VERSION = ((document.currentScript && document.currentScript.src.match(/[?&]v=(\w+)/)) || [])[1] || 'dev';
+const reportedErrors = new Set();
+let reportsOff = false;
+function reportError(kind, message, stack) {
+  try {
+    if (!GLOBAL_ON || reportsOff || reportedErrors.size >= 3) return;
+    const text = String(message || 'error desconocido').slice(0, 300);
+    if (reportedErrors.has(kind + text)) return;
+    reportedErrors.add(kind + text);
+    const where = String(stack || '').split('\n').slice(0, 2).join(' | ').replace(/https?:\/\/[^\s)]*\//g, '');
+    const context = `${kind} · ${mode} · ${maxY ? meters() : 0} m · ${level} · calidad ${gfx} · ${W}x${H} @${dpr}x · ${where}`.slice(0, 200);
+    api('/rest/v1/rpc/report_error', {
+      p_message: text, p_context: context, p_device: String(navigator.userAgent || '').slice(0, 300), p_version: APP_VERSION,
+    }).catch((err) => { if (err.server && (err.status === 404 || err.code === 'PGRST202')) reportsOff = true; });
+  } catch {}
+}
+window.addEventListener('error', (e) => reportError('error', e.message, e.error && e.error.stack ? e.error.stack : `${(e.filename || '').split('/').pop()}:${e.lineno}`));
+window.addEventListener('unhandledrejection', (e) => reportError('promesa', e.reason && e.reason.message ? e.reason.message : String(e.reason), e.reason && e.reason.stack));
+// Error que quedó guardado de la vez anterior (por si la app se cerró antes de poder avisar)
+(() => {
+  const prev = safeGet('ultimo-error');
+  if (prev) { reportError('anterior', prev); safeSet('ultimo-error', ''); }
+})();
 // Dibujos guardados fuera de pantalla: se borran y se vuelven a pintar cuando hace falta
 function clearDrawCaches() {
   spriteCache.clear(); glowSprites.clear();
@@ -3521,7 +3640,7 @@ function clearDrawCaches() {
 }
 // Android puede quitarle la memoria al lienzo (poca memoria o app en segundo plano):
 // al recuperarlo se rehacen los dibujos guardados y el juego se vuelve a pintar solo
-canvas.addEventListener('contextlost', (e) => { e.preventDefault?.(); clearDrawCaches(); });
+canvas.addEventListener('contextlost', (e) => { e.preventDefault?.(); clearDrawCaches(); reportError('lienzo', 'el navegador quitó el lienzo del juego (poca memoria o segundo plano)'); });
 canvas.addEventListener('contextrestored', () => { clearDrawCaches(); resize(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) clearDrawCaches(); });
 

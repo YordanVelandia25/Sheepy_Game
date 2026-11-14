@@ -126,10 +126,47 @@ revoke all on function public.submit_score(text, integer) from public;
 grant execute on function public.submit_score(text, integer, text) to anon, authenticated;
 grant execute on function public.submit_score(text, integer) to anon, authenticated;
 
--- 5) Que la API de Supabase vea los cambios ya mismo
+-- 5) Reportes de errores del juego (anónimos, sin nombre del jugador)
+--    El juego solo puede ENVIAR reportes; nadie puede leerlos desde el juego.
+--    Para verlos: Supabase → Table Editor → error_reports.
+create table if not exists public.error_reports (
+  id          bigint generated always as identity primary key,
+  created_at  timestamptz not null default now(),
+  message     text not null,   -- el error
+  context     text,            -- dónde iba: pantalla, metros, nivel, calidad, tamaño de pantalla
+  device      text,            -- teléfono y navegador
+  version     text             -- versión del juego
+);
+create index if not exists error_reports_time_idx on public.error_reports (created_at);
+alter table public.error_reports enable row level security;
+revoke all on public.error_reports from anon, authenticated;
+
+drop function if exists public.report_error(text, text, text, text);
+create function public.report_error(p_message text, p_context text, p_device text, p_version text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- Freno: como mucho 300 reportes por hora entre todos (evita que alguien llene la tabla)
+  if (select count(*) from error_reports where created_at > now() - interval '1 hour') >= 300 then
+    return;
+  end if;
+  insert into error_reports (message, context, device, version)
+  values (left(coalesce(nullif(btrim(p_message), ''), 'error desconocido'), 300),
+          left(p_context, 200), left(p_device, 300), left(p_version, 20));
+  -- Solo se guardan los de los últimos 60 días
+  delete from error_reports where created_at < now() - interval '60 days';
+end;
+$$;
+revoke all on function public.report_error(text, text, text, text) from public;
+grant execute on function public.report_error(text, text, text, text) to anon, authenticated;
+
+-- 6) Que la API de Supabase vea los cambios ya mismo
 notify pgrst, 'reload schema';
 
--- 6) Comprobación final
+-- 7) Comprobación final
 select 'Ranking listo' as resultado,
        (select count(*) from public.scores where level = 'facil') as en_facil,
        (select count(*) from public.scores where level = 'dificil') as en_dificil,

@@ -1513,9 +1513,11 @@ function drawSky() {
 
   // Espacio exterior: planetas, galaxias, cometas…
   if (sp > 0.01 && hv < 0.99) drawSpace(sp * (1 - hv));
+  else if (spriteCache.size) spriteCache.clear();          // fuera del espacio no hacen falta los planetas guardados
 
   // Cielo: rayos de luz y la ciudad de oro al fondo
   if (hv > 0.01) drawHeaven(hv);
+  else if (cityCache) cityCache = null;                    // la ciudad de oro solo se guarda estando en el cielo
 
   // Nubes: de día y en el cielo (no en el espacio)
   const cloudA = Math.max(1 - sp, hv);
@@ -1616,6 +1618,7 @@ function cachedSprite(key, R, paint) {          // R: radio del dibujo en píxel
     c = document.createElement('canvas');
     c.width = c.height = Math.ceil(R * 2 * dpr) + 4;
     const g = c.getContext('2d');
+    if (!g) return null;                       // sin memoria para guardarlo: se dibuja directo
     g.setTransform(dpr, 0, 0, dpr, c.width / 2, c.height / 2);
     const prev = ctx, prevTime = time;
     ctx = g; time = 0;
@@ -1625,8 +1628,8 @@ function cachedSprite(key, R, paint) {          // R: radio del dibujo en píxel
   }
   return c;
 }
-function blitSprite(c, x, y) {
-  const s = c.width / dpr;
+function blitSprite(c, x, y, f = 1) {
+  const s = (c.width / dpr) * f;
   ctx.drawImage(c, x - s / 2, y - s / 2, s, s);
 }
 // Radio de cada planeta/objeto del espacio (por tamaño 1); los asteroides se dibujan siempre (cada roca gira)
@@ -1634,16 +1637,19 @@ const SPACE_R = { ringed: 72, red: 30, earth: 34, gas: 44, moonrock: 22, nebula:
 function drawSpaceObj(o, x, y, k) {
   const R = SPACE_R[o.kind];
   if (!R) { paintSpaceObj(o, x, y, k); return; }
-  const kq = Math.round(k * 20) / 20;           // pocas variantes de tamaño
-  const c = cachedSprite(`space:${o.kind}:${kq}`, R * kq, () => paintSpaceObj({ ...o, rot: 0 }, 0, 0, kq));
+  // Un solo dibujo guardado por tipo (al tamaño más grande) que se achica al copiarlo: poca memoria
+  const KREF = 1.6;
+  const c = cachedSprite(`space:${o.kind}`, R * KREF, () => paintSpaceObj({ ...o, rot: 0 }, 0, 0, KREF));
+  if (!c) { paintSpaceObj(o, x, y, k); return; }
+  const f = k / KREF;
   // Lo que se mueve (giro de la galaxia y el satélite, vaivén del cometa) se aplica al copiar
   if (o.kind === 'galaxy' || o.kind === 'satellite') {
     ctx.save(); ctx.translate(x, y);
     ctx.rotate(o.kind === 'galaxy' ? o.rot + time * 0.05 : Math.sin(time * 0.6 + o.rot) * 0.3);
-    blitSprite(c, 0, 0);
+    blitSprite(c, 0, 0, f);
     ctx.restore();
-  } else if (o.kind === 'comet') blitSprite(c, x + Math.sin(time * 0.3 + o.rot) * 20, y);
-  else blitSprite(c, x, y);
+  } else if (o.kind === 'comet') blitSprite(c, x + Math.sin(time * 0.3 + o.rot) * 20, y, f);
+  else blitSprite(c, x, y, f);
 }
 function paintSpaceObj(o, x, y, k) {
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
@@ -1808,6 +1814,7 @@ function drawGoldenCity(hv) {
     const c = document.createElement('canvas');
     c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
     const g = c.getContext('2d');
+    if (!g) { ctx.save(); ctx.translate(0, (1 - hv) * ch * 1.1); paintGoldenCity(); ctx.restore(); return; }
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     const prev = ctx;
     ctx = g;
@@ -3421,7 +3428,8 @@ function draw() {
   const distort = wob > 0.01;
   ctx = mainCtx;
   if (lastFilter) { canvas.style.filter = ''; lastFilter = ''; }
-  if (distort) ctx = worldCtx();
+  if (distort) ctx = worldCtx() || mainCtx;
+  else if (worldCv) worldCv = null;                        // sin anteojos se suelta el lienzo extra
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   drawSky();
   drawGround();
@@ -3450,7 +3458,7 @@ function draw() {
     ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   }
   ctx.globalAlpha = 1;
-  if (distort) {
+  if (distort && ctx !== mainCtx) {
     // Se pega el mundo en la pantalla con borrosidad, colores raros y visión doble
     ctx = mainCtx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -3488,13 +3496,34 @@ const FOE_DRAW = { bee: drawBee, bat: drawBat, thorn: drawThorn, spike: drawSpik
 
 // ---------- Bucle ----------
 let last = performance.now();
+// Si algo falla en un cuadro, el juego sigue con el siguiente (antes el bucle se detenía y la pantalla quedaba congelada)
+let lastLoopError = '';
 function loop(now) {
+  requestAnimationFrame(loop);
   const dt = Math.min((now - last) / 1000, 1 / 30);
   last = now;
   // Mientras se ve el inicio, el menú o el fin de partida, el juego queda tapado: no se calcula ni se dibuja
-  if (mode === 'play') { update(dt); draw(); }
-  requestAnimationFrame(loop);
+  if (mode !== 'play') return;
+  try {
+    update(dt);
+    draw();
+  } catch (err) {
+    ctx = mainCtx;
+    ctx.globalAlpha = 1; ctx.filter = 'none'; ctx.globalCompositeOperation = 'source-over';
+    const msg = `${err && err.message} @ ${meters()} m`;
+    if (msg !== lastLoopError) { lastLoopError = msg; console.error('Sheepy Jumps:', err); safeSet('ultimo-error', msg); }
+  }
 }
+// Dibujos guardados fuera de pantalla: se borran y se vuelven a pintar cuando hace falta
+function clearDrawCaches() {
+  spriteCache.clear(); glowSprites.clear();
+  cityCache = null; worldCv = null; fxCv = null;
+}
+// Android puede quitarle la memoria al lienzo (poca memoria o app en segundo plano):
+// al recuperarlo se rehacen los dibujos guardados y el juego se vuelve a pintar solo
+canvas.addEventListener('contextlost', (e) => { e.preventDefault?.(); clearDrawCaches(); });
+canvas.addEventListener('contextrestored', () => { clearDrawCaches(); resize(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) clearDrawCaches(); });
 
 recoverDraft();
 setLevel(level);          // marca el nivel guardado en ambas pantallas y prepara el mundo

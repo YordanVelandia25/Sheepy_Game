@@ -143,6 +143,7 @@ let soundOn = safeGet('sound') !== 'off';
 function initAudio() {
   if (audio) return;
   try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch { audio = null; }
+  loadVoices();
 }
 function tone(type, f1, f2, dur, vol = 0.15) {
   if (!audio || !soundOn) return;
@@ -186,6 +187,7 @@ soundBtn.addEventListener('click', () => {
   initAudio();
   soundOn = !soundOn;
   safeSet('sound', soundOn ? 'on' : 'off');
+  if (!soundOn && voiceNow) { try { voiceNow.stop(); } catch {} voiceNow = null; }   // silencia también la voz
   renderSoundBtn();
 });
 renderSoundBtn();
@@ -1026,7 +1028,57 @@ function showAnnounce(text, color) {
   sheepSay = { text, t: SAY_TIME, dur: SAY_TIME, color };
   speak(text.replace(/[¡!]/g, ''));
 }
-// Voz del anuncio con la síntesis de voz del navegador (sin archivos de audio)
+// ---------- Voz de Sheepy: grabaciones propias ----------
+// Cada frase tiene su audio (carpeta audio/). Si un audio no está o no cargó, se usa la voz del teléfono.
+const VOICE_CLIPS = {
+  'ay, ay, la murición': 'audio/muricion.mp3',
+  'ay, necesito un ojólogo': 'audio/gafas.mp3',
+  'uy, mucho café': 'audio/cafe.mp3',
+  'todo está al revés': 'audio/espejo.mp3',
+  'a dónde se fue la luz': 'audio/linterna.mp3',
+  'yo soy la luz': 'audio/luz.mp3',
+  'una chancleta voladora': 'audio/chancleta.mp3',
+  'una estrella fugaz': 'audio/estrella.mp3',
+  'atrapada en una burbuja': 'audio/burbuja.mp3',
+  'uy, no veo nada': 'audio/neblina.mp3',
+  'ráfaga de viento': 'audio/viento.mp3',
+};
+const voiceKey = (t) => String(t).toLowerCase().replace(/[¡!¿?.]/g, '').replace(/\s+/g, ' ').trim();
+const voiceBuffers = {};
+let voicesLoading = false, voiceNow = null;
+// Se cargan una sola vez, cuando el sonido ya está activado (primer toque en la pantalla)
+function loadVoices() {
+  if (voicesLoading || !audio) return;
+  voicesLoading = true;
+  for (const [key, url] of Object.entries(VOICE_CLIPS)) {
+    fetch(url)
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(r.status))))
+      // Forma con callbacks: también funciona en iPhone viejos
+      .then((data) => new Promise((ok, fail) => { const p = audio.decodeAudioData(data, ok, fail); if (p && p.catch) p.catch(fail); }))
+      .then((buf) => { voiceBuffers[key] = buf; })
+      .catch((err) => console.warn('Voz no disponible:', url, err));
+  }
+}
+function playVoice(text) {
+  const buf = voiceBuffers[voiceKey(text)];
+  if (!buf || !audio) return false;
+  try {
+    if (audio.state === 'suspended') audio.resume();
+    if (voiceNow) { try { voiceNow.stop(); } catch {} }
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+    const src = audio.createBufferSource();
+    const g = audio.createGain();
+    g.gain.value = 0.9;
+    src.buffer = buf;
+    src.connect(g).connect(audio.destination);
+    src.onended = () => { if (voiceNow === src) voiceNow = null; };
+    src.start();
+    voiceNow = src;
+    return true;
+  } catch (err) { console.warn('Sin voz grabada:', err); return false; }
+}
+
+// Voz del teléfono (síntesis de voz del navegador): solo para frases sin grabación
 let voiceEs = null;
 function pickVoice() {
   const vs = window.speechSynthesis?.getVoices?.() || [];
@@ -1034,7 +1086,9 @@ function pickVoice() {
 }
 if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.addEventListener?.('voiceschanged', pickVoice); }
 function speak(text) {
-  if (!soundOn || !('speechSynthesis' in window)) return;
+  if (!soundOn) return;
+  if (playVoice(text)) return;                       // primero la grabación de Sheepy
+  if (!('speechSynthesis' in window)) return;
   try {
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
